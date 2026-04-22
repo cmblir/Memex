@@ -23,9 +23,17 @@ That's it. Obsidian settings, graph colors, and hotkeys are pre-configured.
 
 ## What You Can Do
 
+### UI / UX
+
+- **Black & white design** — monochrome palette for focused reading, minimal color except for status/diff signals.
+- **Interactive** — hover/focus animations, smooth transitions, toast notifications.
+- **Resizable sidebar** — drag the right edge to adjust width (220–500px), or press **Cmd/Ctrl + B** to toggle.
+- **Folder view** — click a folder name in the tree to read all its pages continuously in one scroll, with a floating scroll-spy navigator.
+- **Model selector** — top-left dropdown to pick Claude model (Opus 4.7 / Sonnet 4.6 / Haiku 4.5 / Default).
+
 ### Languages
 
-The dashboard is fully bilingual (English / 한국어). Use the **EN / 한국어** toggle in the top-right header. Your choice persists in `localStorage`.
+Fully bilingual (English / 한국어). Use the **EN / 한국어** toggle in the top-right header. Your choice persists in `localStorage`.
 
 ### From the Dashboard (http://localhost:8090)
 
@@ -140,6 +148,8 @@ When sources conflict, CLAUDE.md defines 3 resolution paths:
 | GET | `/api/raw/integrity` | raw/ tampering check |
 | GET | `/api/reflect/status` | Last reflect date |
 | GET | `/api/review/list` | Pages stale for 30+ days |
+| GET | `/api/settings` | Current settings (model) + available models |
+| POST | `/api/settings` | Update settings (e.g. `{model: "claude-sonnet-4-6"}`) |
 | POST | `/api/ingest` | Ingest source (diff, reasoning, auto-commit) |
 | POST | `/api/query` | Query with file tracking |
 | POST | `/api/query/save` | Save query answer as wiki page |

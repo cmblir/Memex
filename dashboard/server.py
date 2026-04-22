@@ -37,6 +37,41 @@ if not _claude:
 CLAUDE_TOOLS = "Edit,Write,Read,Glob,Grep"
 CLAUDE_TIMEOUT = 180
 
+# ─── 런타임 설정 (모델 등) ───
+
+SETTINGS_FILE = PROJECT_ROOT / ".dashboard-settings.json"
+
+AVAILABLE_MODELS = [
+    {"id": "claude-opus-4-7", "label": "Opus 4.7", "desc": "최고 품질 (가장 강력)"},
+    {"id": "claude-sonnet-4-6", "label": "Sonnet 4.6", "desc": "균형잡힌 품질/속도"},
+    {"id": "claude-haiku-4-5", "label": "Haiku 4.5", "desc": "빠르고 경제적"},
+    {"id": "default", "label": "Default", "desc": "CLI 기본 모델 사용"},
+]
+
+
+def _load_settings():
+    if SETTINGS_FILE.exists():
+        try:
+            return json.loads(SETTINGS_FILE.read_text("utf-8"))
+        except Exception:
+            pass
+    return {"model": "default"}
+
+
+def _save_settings(s):
+    SETTINGS_FILE.write_text(json.dumps(s, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+SETTINGS = _load_settings()
+
+
+def _claude_model_args():
+    """현재 설정된 모델을 CLI 인자로 변환"""
+    model = SETTINGS.get("model", "default")
+    if not model or model == "default":
+        return []
+    return ["--model", model]
+
 RAW_ABS = os.path.abspath(str(RAW_DIR))
 
 
@@ -247,7 +282,7 @@ def run_claude(prompt):
     """claude -p 실행 → (ok, output, error)"""
     try:
         r = subprocess.run(
-            ["claude", "-p", "--allowedTools", CLAUDE_TOOLS, "--output-format", "text", prompt],
+            ["claude", "-p", "--allowedTools", CLAUDE_TOOLS] + _claude_model_args() + ["--output-format", "text", prompt],
             capture_output=True, text=True, timeout=CLAUDE_TIMEOUT,
             cwd=str(PROJECT_ROOT),
         )
@@ -263,8 +298,8 @@ def run_claude_tracked(prompt):
     → (ok, answer, error, files_read, token_usage)"""
     try:
         r = subprocess.run(
-            ["claude", "-p", "--allowedTools", CLAUDE_TOOLS,
-             "--output-format", "stream-json", "--verbose", prompt],
+            ["claude", "-p", "--allowedTools", CLAUDE_TOOLS] + _claude_model_args() +
+            ["--output-format", "stream-json", "--verbose", prompt],
             capture_output=True, text=True, timeout=CLAUDE_TIMEOUT,
             cwd=str(PROJECT_ROOT),
         )
@@ -1228,6 +1263,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(check_raw_integrity())
         if path == "/api/review/list":
             return self._json(do_review_list())
+        if path == "/api/settings":
+            return self._json({"settings": SETTINGS, "models": AVAILABLE_MODELS})
         if path == "/api/reflect/status":
             last = get_last_reflect_date()
             days_ago = None
@@ -1286,6 +1323,14 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(do_search(body.get("query", ""), body.get("top_k", 10)))
         if path == "/api/suggest/sources":
             return self._json(do_suggest_sources())
+        if path == "/api/settings":
+            model = body.get("model", "default")
+            valid = [m["id"] for m in AVAILABLE_MODELS]
+            if model not in valid:
+                return self._json({"ok": False, "error": f"Unknown model: {model}"})
+            SETTINGS["model"] = model
+            _save_settings(SETTINGS)
+            return self._json({"ok": True, "settings": SETTINGS})
         if path == "/api/index/rebuild":
             result = rebuild_index(WIKI_DIR)
             if result["ok"]:

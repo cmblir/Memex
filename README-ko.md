@@ -23,9 +23,17 @@ Obsidian → "Open folder as vault" → `my-wiki` 선택.
 
 ## 할 수 있는 것
 
+### UI / UX
+
+- **흑백 디자인** — 집중을 위한 모노크롬 팔레트. 색은 상태/diff에만 최소한으로 사용.
+- **인터랙티브** — 호버·포커스 애니메이션, 부드러운 전환, 토스트 알림.
+- **리사이즈 가능한 사이드바** — 우측 경계를 드래그해 너비 조절(220–500px), 또는 **Cmd/Ctrl + B**로 토글.
+- **폴더 뷰** — 트리에서 폴더 이름을 클릭하면 하위 페이지를 한 화면에서 연속으로 읽을 수 있고, 우측에 플로팅 스크롤 네비게이터가 표시됩니다.
+- **모델 선택** — 헤더 좌측 드롭다운에서 Claude 모델 선택 (Opus 4.7 / Sonnet 4.6 / Haiku 4.5 / Default).
+
 ### 언어
 
-대시보드는 영어/한국어를 모두 지원합니다. 헤더 우측 상단의 **EN / 한국어** 토글로 전환할 수 있으며, 선택은 `localStorage`에 저장됩니다.
+영어/한국어 완전 지원. 헤더 우측 상단의 **EN / 한국어** 토글로 전환할 수 있으며, 선택은 `localStorage`에 저장됩니다.
 
 ### 대시보드에서 (http://localhost:8090)
 
@@ -148,6 +156,8 @@ CLAUDE.md             LLM 스키마 — frontmatter 규칙, citation 규칙,
 | GET | `/api/raw/integrity` | raw/ 변조 체크 |
 | GET | `/api/reflect/status` | 마지막 성찰 실행 날짜 |
 | GET | `/api/review/list` | 30일 이상 갱신되지 않은 페이지 목록 |
+| GET | `/api/settings` | 현재 설정(모델) + 가능한 모델 목록 |
+| POST | `/api/settings` | 설정 변경 (예: `{model: "claude-sonnet-4-6"}`) |
 | POST | `/api/ingest` | 소스 수집 (변경 diff, 판단 근거, 자동 커밋) |
 | POST | `/api/query` | 파일 추적 포함 질문 |
 | POST | `/api/query/save` | 답변을 위키 페이지로 저장 |

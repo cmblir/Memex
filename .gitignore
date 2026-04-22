@@ -11,6 +11,7 @@ Thumbs.db
 # Build artifacts
 dashboard/data.json
 query-log.jsonl
+.dashboard-settings.json
 __pycache__/
 *.pyc
 
