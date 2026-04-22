@@ -55,8 +55,10 @@ class GitManager:
         return r
 
     def _stage_all(self):
-        """wiki/ + raw/ 변경사항 스테이징"""
+        """wiki/ + raw/ + ingest-reports/ 변경사항 스테이징"""
         self._run("add", "wiki/", "raw/")
+        if (PROJECT_ROOT / "ingest-reports").is_dir():
+            self._run("add", "ingest-reports/")
 
     def commit_ingest(self, source_name):
         """ingest 완료 후 커밋. commit hash 반환."""
@@ -273,18 +275,93 @@ def check_status():
 
 # ─── operations ───
 
+def _snapshot_wiki():
+    """wiki/ 전체 파일의 내용을 dict로 스냅샷"""
+    snap = {}
+    for md in WIKI_DIR.rglob("*.md"):
+        rel = str(md.relative_to(PROJECT_ROOT))
+        try:
+            snap[rel] = md.read_text("utf-8")
+        except Exception:
+            pass
+    return snap
+
+
+def _diff_snapshots(before, after):
+    """before/after 스냅샷 비교 → created_pages, modified_pages"""
+    import difflib
+    created, modified = [], []
+    for path, content in after.items():
+        if path not in before:
+            # 새 파일 — preview 첫 10줄
+            lines = content.strip().split("\n")
+            preview = "\n".join(lines[:12])
+            created.append({"path": path, "preview_text": preview})
+        elif before[path] != content:
+            # 수정된 파일 — unified diff
+            diff = difflib.unified_diff(
+                before[path].splitlines(keepends=True),
+                content.splitlines(keepends=True),
+                fromfile=f"a/{path}", tofile=f"b/{path}", lineterm="",
+            )
+            modified.append({"path": path, "diff_unified": "\n".join(diff)})
+    return created, modified
+
+
 def do_ingest(title, content, folder=""):
     slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-") or f"source-{int(time.time())}"
     raw_path = RAW_DIR / f"{slug}.md"
     raw_path.write_text(content, encoding="utf-8")
+
+    # 1) 스냅샷 before
+    snap_before = _snapshot_wiki()
+
+    # 2) 프롬프트: ingest + reasoning + report
+    ts = datetime.now().strftime("%Y-%m-%d-%H%M")
+    report_path = f"ingest-reports/{ts}-{slug}.md"
     folder_inst = f" wiki/{folder}/ 폴더 하위에 페이지를 생성해." if folder else ""
-    prompt = f"Ingest raw/{slug}.md — 이 소스를 읽고 CLAUDE.md 지침대로 wiki 페이지들을 생성/갱신해. 핵심 내용 논의는 생략하고 바로 실행해.{folder_inst}"
+
+    prompt = f"""Ingest raw/{slug}.md — 이 소스를 읽고 CLAUDE.md 지침대로 wiki 페이지들을 생성/갱신해. 핵심 내용 논의는 생략하고 바로 실행해.{folder_inst}
+
+작업이 끝나면:
+1. 마지막에 왜 이런 판단을 했는지 3~5줄로 요약해 (REASONING: 으로 시작).
+2. {report_path} 파일을 생성해. 형식:
+# Ingest Report: {title}
+## Created
+- wiki/path/file.md — WHY: 1줄 이유
+## Modified
+- wiki/path/file.md — WHY: 1줄 이유
+## New cross-links
+- [[a]] ↔ [[b]]"""
+
     ok, out, err = run_claude(prompt)
-    # 자동 커밋
-    commit = {"hash": None, "files": []}
+
+    # 3) 스냅샷 after + diff
+    snap_after = _snapshot_wiki()
+    created, modified = _diff_snapshots(snap_before, snap_after)
+
+    # 4) reasoning 추출
+    reasoning = ""
+    if "REASONING:" in out:
+        reasoning = out.split("REASONING:")[-1].strip()
+
+    # 5) 자동 커밋
+    commit_hash = None
     if ok:
-        commit = git_mgr.commit_ingest(title)
-    return {"ok": ok, "raw_file": f"raw/{slug}.md", "claude_output": out, "error": err, "commit": commit}
+        c = git_mgr.commit_ingest(title)
+        commit_hash = c.get("hash")
+
+    return {
+        "ok": ok,
+        "raw_file": f"raw/{slug}.md",
+        "claude_output": out,
+        "error": err,
+        "commit_hash": commit_hash,
+        "created_pages": created,
+        "modified_pages": modified,
+        "reasoning": reasoning,
+        "report_path": report_path,
+    }
 
 
 def do_query(question):

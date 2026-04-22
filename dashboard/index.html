@@ -109,6 +109,23 @@ main{display:flex;flex-direction:column;overflow:hidden}
 .modal .actions button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
 .modal .actions button.danger{background:var(--red);border-color:var(--red);color:#fff}
 
+/* Ingest result panel */
+.ir-panel{max-width:960px;margin:0 auto;padding:24px 32px}
+.ir-split{display:grid;grid-template-columns:240px 1fr;gap:16px;min-height:350px;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.ir-files{background:var(--bg2);padding:12px 0;overflow-y:auto;border-right:1px solid var(--border)}
+.ir-file{padding:6px 14px;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:6px;border-left:3px solid transparent}
+.ir-file:hover{background:var(--bg3)}.ir-file.on{background:var(--accent-dim);border-left-color:var(--accent)}
+.ir-file .ir-icon{font-size:11px;font-weight:700;width:16px;text-align:center;flex-shrink:0}
+.ir-file .ir-icon.created{color:var(--green)}.ir-file .ir-icon.modified{color:var(--orange)}
+.ir-file .ir-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ir-detail{padding:16px;overflow:auto;background:var(--bg)}
+.ir-diff{font-family:var(--mono);font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-all}
+.ir-diff .d-add{color:var(--green)}.ir-diff .d-del{color:var(--red)}.ir-diff .d-hdr{color:var(--accent);font-weight:600}
+.ir-preview{font-size:13px;line-height:1.6}
+.ir-reasoning{margin-top:16px;padding:12px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;font-size:13px;line-height:1.6;color:var(--muted)}
+.ir-reasoning strong{color:var(--text)}
+.ir-actions{margin-top:16px;display:flex;gap:10px}
+
 /* History table */
 .hist-table{width:100%;border-collapse:collapse;font-size:13px}
 .hist-table th{text-align:left;padding:8px 10px;border-bottom:2px solid var(--border);color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.4px}
@@ -319,11 +336,116 @@ async function doIngest(){
   if(!t||!c){alert('Title and content are required.');return;}
   const btn=document.getElementById('ingestBtn'),res=document.getElementById('ingestResult');
   btn.disabled=true;btn.textContent='Ingesting...';res.className='result-box info';res.textContent='Claude CLI 호출 중... (최대 3분 소요)';
-  try{const r=await fetch('/api/ingest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:t,content:c,folder:f})});const d=await r.json();
-    if(d.ok){res.className='result-box ok';res.innerHTML='<div class="md">'+marked.parse(d.claude_output||'Done.')+'</div>';await Promise.all([loadWiki(),loadFolders()]);renderStats();renderSidebar();}
-    else{res.className='result-box err';res.textContent='Error: '+d.error+'\n\n'+(d.claude_output||'');}
-  }catch(e){res.className='result-box err';res.textContent='Network error: '+e.message;}
-  btn.disabled=false;btn.textContent='Ingest with Claude';
+  try{
+    const r=await fetch('/api/ingest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:t,content:c,folder:f})});
+    const d=await r.json();
+    if(d.ok){
+      await Promise.all([loadWiki(),loadFolders()]);renderStats();renderSidebar();
+      showIngestResult(d);
+    }else{
+      res.className='result-box err';res.textContent='Error: '+d.error+'\n\n'+(d.claude_output||'');
+      btn.disabled=false;btn.textContent='Ingest with Claude';
+    }
+  }catch(e){res.className='result-box err';res.textContent='Network error: '+e.message;btn.disabled=false;btn.textContent='Ingest with Claude';}
+}
+
+function showIngestResult(d){
+  setView('ingest');
+  document.getElementById('bc').innerHTML='<b>Ingest Result</b> · '+esc(d.raw_file);
+  window._lastIngestResult=d;
+
+  var files=[];
+  (d.created_pages||[]).forEach(function(p){files.push({path:p.path,type:'created',preview:p.preview_text,diff:null});});
+  (d.modified_pages||[]).forEach(function(p){files.push({path:p.path,type:'modified',preview:null,diff:p.diff_unified});});
+  window._irFiles=files;
+
+  var h='<div class="ir-panel">';
+  h+='<h2 style="margin-bottom:4px">Ingest Complete</h2>';
+  h+='<p class="desc" style="margin-bottom:16px"><span style="color:var(--green);font-weight:600">'+d.created_pages.length+' created</span> · <span style="color:var(--orange);font-weight:600">'+d.modified_pages.length+' modified</span>';
+  if(d.commit_hash) h+=' · <span style="font-family:var(--mono);font-size:11px;color:var(--accent)">'+d.commit_hash.substring(0,8)+'</span>';
+  h+='</p>';
+
+  // split view
+  h+='<div class="ir-split">';
+  // left: file list
+  h+='<div class="ir-files" id="irFiles">';
+  for(var i=0;i<files.length;i++){
+    var f=files[i];
+    var icon=f.type==='created'?'+':'~';
+    var cls=f.type;
+    h+='<div class="ir-file'+(i===0?' on':'')+'" onclick="selectIrFile('+i+')">';
+    h+='<span class="ir-icon '+cls+'">'+icon+'</span>';
+    h+='<span class="ir-name">'+esc(f.path.replace('wiki/',''))+'</span>';
+    h+='</div>';
+  }
+  if(!files.length) h+='<div style="padding:20px;color:var(--muted);text-align:center">No changes</div>';
+  h+='</div>';
+  // right: detail
+  h+='<div class="ir-detail" id="irDetail"></div>';
+  h+='</div>';
+
+  // reasoning
+  if(d.reasoning){
+    h+='<div class="ir-reasoning"><strong>Reasoning:</strong> '+esc(d.reasoning)+'</div>';
+  }
+
+  // actions
+  h+='<div class="ir-actions">';
+  h+='<button class="btn btn-green" onclick="approveIngest()">Approve</button>';
+  if(d.commit_hash) h+='<button class="btn btn-revert" style="padding:8px 20px;font-size:13px" onclick="revertIngest()">Revert</button>';
+  h+='</div>';
+  h+='</div>';
+
+  document.getElementById('content').innerHTML=h;
+  if(files.length) selectIrFile(0);
+}
+
+function selectIrFile(idx){
+  var files=window._irFiles;
+  if(!files||!files[idx])return;
+  // highlight
+  var items=document.querySelectorAll('.ir-file');
+  items.forEach(function(el,i){el.classList.toggle('on',i===idx);});
+  var f=files[idx];
+  var detail=document.getElementById('irDetail');
+  if(f.type==='created'){
+    detail.innerHTML='<div class="ir-preview"><div class="md">'+marked.parse(f.preview||'(empty)')+'</div></div>';
+  }else{
+    detail.innerHTML='<div class="ir-diff">'+formatDiff(f.diff||'')+'</div>';
+  }
+}
+
+function formatDiff(raw){
+  if(!raw)return '<span style="color:var(--muted)">(no diff)</span>';
+  var lines=raw.split('\n');
+  var out=[];
+  for(var i=0;i<lines.length;i++){
+    var l=lines[i];
+    var el=esc(l);
+    if(l.startsWith('@@'))out.push('<span class="d-hdr">'+el+'</span>');
+    else if(l.startsWith('+')&&!l.startsWith('+++'))out.push('<span class="d-add">'+el+'</span>');
+    else if(l.startsWith('-')&&!l.startsWith('---'))out.push('<span class="d-del">'+el+'</span>');
+    else out.push(el);
+  }
+  return out.join('\n');
+}
+
+function approveIngest(){
+  showIngest();
+}
+
+async function revertIngest(){
+  var d=window._lastIngestResult;
+  if(!d||!d.commit_hash)return;
+  if(!confirm('이 Ingest를 되돌립니다. 생성된 페이지가 삭제되고 수정된 페이지가 복원됩니다.'))return;
+  try{
+    var r=await fetch('/api/revert',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({commit_hash:d.commit_hash})});
+    var res=await r.json();
+    if(res.ok){
+      await Promise.all([loadWiki(),loadFolders()]);renderStats();renderSidebar();
+      showIngest();
+    }else{alert('Revert 실패: '+res.error);}
+  }catch(e){alert('Error: '+e.message);}
 }
 
 // ─── Query ───
