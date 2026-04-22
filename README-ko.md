@@ -1,12 +1,23 @@
-# LLM Wiki Dashboard
+# Karpathy LLM Dashboard
 
-LLM이 구축하고 관리하는 개인 지식 베이스 + 웹 대시보드. [Karpathy의 LLM Wiki 패턴](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) 기반.
+스스로 쓰이는 개인 지식 베이스.
+
+[Andrej Karpathy의 LLM Wiki 패턴](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) 기반. 원본 소스를 넣으면, Claude가 이를 통합하여 영속적으로 쌓이는 위키를 만들고 유지합니다. Obsidian과 이 대시보드로 열람합니다.
 
 **[English README](README.md)**
 
-> **Obsidian**이 IDE, **Claude Code**가 프로그래머, **위키**가 코드베이스, **대시보드**가 컨트롤 패널.
+---
 
-위키를 직접 쓸 필요 없습니다. LLM이 전부 작성하고 유지합니다. 당신은 소스를 큐레이션하고, 질문하고, 분석을 지시하면 됩니다.
+## 작동 원리
+
+RAG는 질문할 때마다 지식을 처음부터 다시 찾습니다. 이 프로젝트는 그러지 않습니다. Claude가 소스를 한 번 읽어 서로 연결된 위키 페이지로 통합하고, 새 소스가 들어올 때마다 **기존 지식 위에 쌓입니다**. 사람은 소스를 큐레이션하고 질문하며, Claude는 요약·교차참조·인용·모순 관리 같은 번잡한 유지보수를 담당합니다.
+
+- `raw/` — 원본 문서(기사, 논문, 노트). Claude는 **읽을 수만** 있고 절대 수정할 수 없습니다(4단계 보호).
+- `wiki/` — LLM이 관리하는 마크다운 페이지(엔티티·개념·소스 요약·분석).
+- `CLAUDE.md` — Claude에게 위키 운영 방법을 알려주는 설계 문서.
+- **대시보드** — 브라우저에서 여는 컨트롤 패널 (`http://localhost:8090`).
+
+---
 
 ## 빠른 시작
 
@@ -17,183 +28,203 @@ python dashboard/server.py
 # → http://localhost:8090
 ```
 
-Obsidian → "Open folder as vault" → `my-wiki` 선택.
+Obsidian에서 vault로 열기 (`Open folder as vault` → `my-wiki`). Obsidian 설정·그래프 색·단축키가 미리 구성되어 있습니다.
 
-끝. Obsidian 설정, 그래프 색상, 단축키는 미리 세팅되어 있습니다.
+**필요 조건**: Python 3.10+ (외부 의존성 0), [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) (`npm install -g @anthropic-ai/claude-code`), 브라우저. Obsidian은 선택사항이지만 권장.
 
-## 할 수 있는 것
+---
 
-### UI / UX
+## 대시보드
 
-- **흑백 디자인** — 집중 독서를 위한 모노크롬 팔레트. 색은 상태·diff에만 최소한으로 사용.
-- **카테고리형 툴바** — 13개 기능을 5개 드롭다운으로 묶음: **작업**(수집/질문/작성/비교), **분석**(검진/성찰/복습/출처), **탐색**(검색/그래프/이력), **만들기**(+ 폴더/+ 페이지), **더보기**(CLAUDE.md/가이드). 현재 보고 있는 뷰가 속한 카테고리는 시각적으로 강조.
-- **인터랙티브** — 호버·포커스 애니메이션, 부드러운 전환, 토스트 알림, 드롭다운 팝 애니메이션.
-- **리사이즈 가능한 사이드바** — 우측 경계 드래그로 220–500px 조절, 또는 **Cmd/Ctrl + B**로 접기. 너비는 `localStorage`에 저장.
-- **폴더 뷰** — 트리에서 폴더 **이름**을 클릭하면 하위 페이지를 한 화면에서 연속으로 읽을 수 있고, 플로팅 스크롤 네비게이터가 표시됩니다. (화살표 클릭은 펼치기/접기만.)
-- **모델 선택** — 헤더 좌측 드롭다운에서 Claude 모델 선택 (Opus 4.7 / Sonnet 4.6 / Haiku 4.5 / Default).
+### UI/UX
 
-### 언어
+- **떠다니는 도우미 캐릭터** — 픽셀 아트 Claude 캐릭터가 화면을 돌아다닙니다. 클릭(또는 드래그)하면 채팅 패널이 열리고, 대시보드 기능에 대해 자유롭게 물어볼 수 있습니다. Claude CLI 기반이며 대시보드 전용 컨텍스트로 답변합니다 (위키 내용 질문은 Query 기능으로 안내).
+- **흑백(Black & White) 디자인** — 집중 독서를 위한 모노크롬 팔레트. 색은 상태·diff에만 사용합니다.
+- **카테고리형 툴바** — 기능들을 5개 드롭다운으로 묶었습니다 (작업·분석·탐색·만들기·더보기). 현재 보고 있는 뷰가 속한 카테고리는 상단에 강조됩니다.
+- **인터랙티브** — 호버·포커스 애니메이션, 토스트 알림, 드롭다운 팝, 부드러운 뷰 전환.
+- **리사이즈 가능한 사이드바** — 우측 경계 드래그(220–500px) 또는 `Cmd/Ctrl + B`로 접기. 너비는 `localStorage`에 저장.
+- **폴더 연속 뷰** — 트리에서 폴더 **이름**을 클릭하면 하위 페이지를 한 화면에서 길게 스크롤하며 읽을 수 있고, 우측에 플로팅 스크롤 네비게이터가 표시됩니다.
+- **영/한 전환** — 헤더 우측 토글. 선택 저장됨.
+- **모델 선택** — 헤더에서 Claude 모델 선택 (Opus 4.7 / Sonnet 4.6 / Haiku 4.5 / Default).
 
-영어/한국어 완전 지원. 헤더 우측 상단의 **EN / 한국어** 토글로 전환할 수 있으며, 선택은 `localStorage`에 저장됩니다.
+### 주요 기능
 
-### 대시보드에서 (http://localhost:8090)
+| 카테고리 | 기능 | 설명 |
+|---------|------|------|
+| **작업** | 수집(Ingest) | 소스 붙여넣기 → `raw/` 저장 → Claude가 위키 페이지 생성/갱신 → diff + 판단 근거 + 되돌리기 |
+| | 질문(Query) | 위키에 질문. 읽은 파일 추적, Wiki Ratio, 토큰 사용량 기록 |
+| | 작성(Write) | 위키 지식으로 에세이 초안 작성. 인용 자동 삽입. 주제·분량·스타일 선택 |
+| | 비교(Compare) | 두 페이지 → 공통점·차이점·시사점 → comparison 페이지로 저장 |
+| **분석** | 검진(Lint) | 16개 항목 건강 검진 + 자동 수정 |
+| | 성찰(Reflect) | 주간 메타 분석. 추천 페이지·스키마 개선·부족한 소스·모순 패턴 |
+| | 복습(Review) | 30일 이상 갱신되지 않은 active 페이지 목록. 원클릭 갱신 |
+| | 출처(Provenance) | 페이지별 인용 커버리지 (주장 대비 `[^src-*]` 비율). 자동 보완 |
+| **탐색** | 검색(Search) | 위키 전체에 대한 TF-IDF 전문 검색 |
+| | 그래프(Graph) | Force-directed 지식 그래프. 드래그, 클릭으로 이동 |
+| | 이력(History) | git 기반 수집 이력. 특정 수집 원클릭 되돌리기 |
+| **만들기** | + 폴더 | 위키 하위 폴더 생성 |
+| | + 페이지 | frontmatter 포함 빈 페이지 생성 |
+| **더보기** | CLAUDE.md | 스키마 파일을 대시보드에서 확인·편집 |
+| | 가이드 | 빌트인 인터랙티브 가이드 (첫 관람 시 스트리밍) |
 
-| 기능 | 설명 |
-|------|------|
-| **수집 (Ingest)** | 내용 붙여넣기 → `raw/`에 자동 저장 → Claude가 위키 페이지 생성, 변경 내역과 근거 표시 |
-| **질문 (Query)** | 위키에 질문하면 Claude가 관련 페이지를 찾아 인용과 함께 답변 합성, 어떤 파일을 읽었는지 추적 |
-| **검진 (Lint)** | 위키 건강 검진: 누락된 인용, 고아 페이지, 오래된 주장, frontmatter 문제 등 16개 항목 검사 |
-| **성찰 (Reflect)** | 최근 수집·로그·쿼리를 메타 분석 → 새 페이지 제안, 스키마 개선안, 보강이 필요한 주제 추천 |
-| **작성 (Write)** ✨ | 작성 동반자: 위키 지식으로 에세이/글 초안 작성. `[^src-*]` 인용 자동 삽입. 주제·분량·스타일(블로그/학술/해설) 지정 |
-| **비교 (Compare)** ✨ | 두 페이지의 공통점·차이점·시사점을 분석 → `comparison` 타입 페이지로 저장 가능 |
-| **복습 (Review)** ✨ | 30일 이상 갱신되지 않은 active 페이지 목록 → Claude로 최신 관점 반영해 일괄 갱신 |
-| **검색 (Search)** ✨ | 스마트 검색: 전체 위키에 대한 TF-IDF 전문 검색, 점수 순 정렬 + 스니펫 |
-| **Slides** ✨ | 임의 페이지를 Marp 슬라이드 덱 마크다운으로 내보내기 |
-| **소스 추천** ✨ | 위키의 빈 영역을 파악해 다음에 수집하면 좋을 소스 검색어 제안 |
-| **이력 (History)** | git 기반 수집 이력 + 원클릭 되돌리기 |
-| **출처 (Provenance)** | 페이지별 인용 커버리지 테이블, Claude로 자동 보완 |
-| **그래프 (Graph)** | 인터랙티브 지식 그래프 (드래그, 클릭 이동) |
-| **CLAUDE.md** | LLM 스키마를 대시보드에서 직접 확인하고 수정 |
-| **편집 / 삭제** | 위키 페이지 편집 또는 삭제 |
-| **+ 폴더 / + 페이지** | 위키 구조 수동 생성 |
+### 페이지별 액션
 
-### CLI에서
+- **편집** — 인라인 마크다운 에디터
+- **Slides** — 해당 페이지를 Marp 슬라이드 덱으로 내보내기
+- **삭제** — 시스템 외 페이지
 
-```bash
-claude                              # Claude Code 시작
-# 대화에서:
-"Ingest raw/some-article.md"        # 소스 처리
-"Self-Attention이 뭐야?"              # 위키에 질문
-"Lint the wiki"                     # 건강 검진
+### 헤더 지표
+
+- **Live 도트** + 통계: 총 페이지 · 소스 · 링크
+- **Wiki Ratio 게이지** — 최근 쿼리에서 Claude가 wiki를 얼마나 참고했는지. 0.4 미만이면 위키가 raw를 대체하지 못하고 있다는 의미
+- **인덱스 전략 배지** — `flat`(< 50 페이지), `hierarchical`(50–200), `indexed`(> 200, qmd 권장)
+- **상태 바 (좌측 하단)**: Claude CLI · Obsidian — 둘 다 raw fact만 표시 (process/vault_open)
+
+---
+
+## 지식이 쌓이는 방식
+
+```
+소스 드롭 ──────────►  raw/article.md
+                       │
+                       ▼
+       Claude가 읽고 생성:
+       ├─ wiki/source-article.md     (요약, 자동 생성)
+       ├─ wiki/entity-X.md           (신규 또는 갱신)
+       ├─ wiki/concept-Y.md          (신규 또는 갱신)
+       ├─ wiki/index.md              (갱신)
+       ├─ wiki/log.md                (append)
+       └─ ingest-reports/YYYY-MM-DD-{slug}.md  (WHY 보고서)
+
+       │
+       ▼
+       git commit: "ingest: Article Title"
+       │
+       ▼
+       대시보드: diff 뷰 + 판단 근거 + 승인/되돌리기
 ```
 
-## 아키텍처
+모든 수집은 git 커밋이고, 모든 페이지는 되돌릴 수 있습니다.
+
+---
+
+## 내부 시스템
+
+- **Git 기반 이력**. 모든 수집은 커밋. 모든 되돌리기는 올바른 `git revert`.
+- **인라인 인용**. 모든 사실 주장에 `[^src-소스슬러그]` 필수. 대시보드에서는 숫자 배지로 렌더링되며 소스 페이지 툴팁 제공.
+- **Provenance 추적**. `/api/provenance`가 페이지별 인용 커버리지 보고.
+- **raw/ 불변성** — 4단계 방어:
+  1. `CLAUDE.md`가 LLM에게 raw/ 수정 금지 명시
+  2. 모든 수집 프롬프트에 "raw/는 불변" 주입
+  3. `assert_writable()`가 서버에서 프로그래밍적 쓰기 차단
+  4. `check_raw_integrity()`가 사후 변조 감지
+- **적응형 인덱싱**. 50페이지를 넘으면 `index.md`가 자동으로 `index-sources.md`, `index-entities.md`, `index-concepts.md` 등으로 분할됩니다. 프롬프트도 관련 서브 인덱스만 참조.
+- **수집 보고서** (`ingest-reports/`). 모든 수집 시 Claude가 WHY 보고서 작성 — "왜 이 페이지를 만들고 저 페이지를 수정하고 이 교차참조를 추가했는가".
+- **성찰 보고서** (`reflect-reports/`). 주간 메타 분석을 나중에 볼 수 있도록 저장.
+- **질문 로그** (`query-log.jsonl`). 읽은 파일·Wiki Ratio·토큰 사용량 기록. 헤더 게이지의 근거.
+- **모순 해결**. CLAUDE.md가 3가지 경로 정의: historical-claims 이관, disputed 표기, superseded 체인.
+
+---
+
+## 스키마 (`CLAUDE.md`)
+
+스키마가 정의하는 것:
+
+- **Frontmatter 규칙** — `type`, `confidence`, `status`, `source_count`, `superseded_by`
+- **인라인 인용 규칙** — 형식, 의무 기준, 소스 슬러그 매핑
+- **모순 해결** — 3가지 케이스와 구체적 예시 마크다운
+- **수집 워크플로** — 9단계 엄격 절차. 인용 없이는 페이지 생성 불가
+- **Lint 체크리스트** — 구조 / 인용 / 링크 / 신선도 16개 검사
+
+대시보드에서 편집하거나 (더보기 → CLAUDE.md → 편집) 터미널에서 수정. 다음 작업부터 적용됩니다.
+
+---
+
+## 디렉토리 구조
 
 ```
-raw/                  불변 소스 문서 (보호됨 — 수정/삭제 불가)
-raw/assets/           다운로드된 이미지
-wiki/                 LLM이 관리하는 위키 페이지 (Obsidian + 대시보드로 열람)
-  index.md            콘텐츠 카탈로그 (50+ 페이지 시 자동으로 hierarchical 전환)
-  log.md              활동 타임라인
-  overview.md         위키 통계
+raw/                     원본 문서 (불변)
+raw/assets/              이미지
+wiki/                    LLM이 관리하는 페이지
+  index.md               콘텐츠 카탈로그 (flat/hierarchical 자동)
+  log.md                 활동 타임라인
+  overview.md            위키 통계
+ingest-reports/          각 수집의 WHY 보고서
+reflect-reports/         주간 메타 분석
+plans/                   프로젝트 계획 (기능 큐)
+query-log.jsonl          질문 추적 로그 (gitignored)
+.dashboard-settings.json  런타임 설정 (모델, gitignored)
 dashboard/
-  server.py           API 서버 (Python 3.10+, 외부 의존성 없음)
-  index.html          단일 파일 대시보드 UI
-  provenance.py       Citation 파싱 및 커버리지 분석
-  index_strategy.py   적응형 인덱싱 (flat/hierarchical/indexed)
-  build.py            선택: wiki → data.json 컴파일러
-ingest-reports/       각 ingest의 WHY 보고서
-reflect-reports/      주간 메타 분석 보고서
-query-log.jsonl       쿼리 추적 (읽은 파일, wiki ratio)
-CLAUDE.md             LLM 스키마 — frontmatter 규칙, citation 규칙,
-                      모순 해결 정책, ingest 워크플로, lint 체크리스트
-.obsidian/            vault 설정 (미리 세팅됨)
+  server.py              API 서버 (Python 3.10+, stdlib만)
+  index.html             단일 파일 대시보드 UI
+  provenance.py          인용 파싱 + 커버리지
+  index_strategy.py      적응형 인덱싱
+  build.py               (선택) wiki → data.json 컴파일러
+CLAUDE.md                스키마
+.obsidian/               미리 구성된 vault 설정
 ```
 
-## 핵심 시스템
-
-### Ingest + Diff 시각화
-
-소스를 ingest하면 대시보드에 표시:
-- **좌측 패널**: 파일 트리 (초록 = 생성, 노랑 = 수정)
-- **우측 패널**: 수정 파일은 unified diff, 새 파일은 마크다운 프리뷰
-- **Reasoning**: Claude가 각 판단의 이유를 설명
-- **Approve / Revert**: 원클릭 `git revert`로 되돌리기
-
-### Inline Citation
-
-모든 사실적 주장에 `[^src-*]` citation 필수. 대시보드에서 숫자 배지로 렌더링, hover 시 소스 제목 툴팁, 클릭 시 소스 페이지로 이동.
-
-**Provenance** 탭에서 페이지별 citation 커버리지 확인 — **Fix** 버튼으로 Claude가 자동 보완.
-
-### 적응형 인덱싱
-
-| 페이지 수 | 전략 | 동작 |
-|----------|------|------|
-| < 50 | `flat` | 단일 `index.md` |
-| 50-200 | `hierarchical` | 타입별 서브 인덱스 자동 생성 |
-| > 200 | `indexed` | 경고 배너, BM25/벡터 검색 도입 권장 |
-
-### Wiki Ratio 게이지
-
-헤더에 실시간 게이지 — Claude가 Query 시 wiki vs raw 소스를 얼마나 참조하는지 표시. 0.4 미만 = 빨간색 (위키가 raw를 효과적으로 대체하지 못하고 있음).
-
-### raw/ 보호
-
-`raw/`는 4단계로 보호:
-1. `CLAUDE.md`에 LLM에게 raw/ 수정 금지 명시
-2. 모든 프롬프트에 "raw/는 불변" 삽입
-3. `assert_writable()`로 프로그래밍적 쓰기 차단
-4. `check_raw_integrity()`로 사후 변경 감지
-
-### 모순 해결 정책
-
-소스 간 충돌 시 CLAUDE.md에 정의된 3가지 경로:
-- **최신 + 높은 신뢰도** → 기존 claim을 "Historical claims"로 이동
-- **비슷한 날짜 또는 낮은 신뢰도** → "Disputed" 섹션, 페이지 `disputed` 표시
-- **명시적 반박** → 기존 소스 `superseded` 표시
-
-### Reflect (메타 분석)
-
-주 1회 권장. 최근 ingest 보고서 + 로그 + 쿼리 기록을 분석하여:
-- 만들어야 할 새 페이지 제안
-- CLAUDE.md 스키마 개선 제안 (diff 형태)
-- 부족한 소스 주제의 검색어 추천
-- 반복되는 모순 패턴 분석
+---
 
 ## API 레퍼런스
 
 | Method | Path | 설명 |
 |--------|------|------|
-| GET | `/api/status` | Claude CLI + Obsidian 연결 상태 |
-| GET | `/api/wiki` | 전체 위키 데이터 (페이지, 그래프, 로그, 통계) |
+| GET | `/api/status` | Claude CLI + Obsidian 연결 (raw facts) |
+| GET | `/api/wiki` | 전체 위키 데이터 |
 | GET | `/api/folders` | 폴더 트리 |
-| GET | `/api/hash` | 위키 변경 감지 해시 |
+| GET | `/api/hash` | 변경 감지 해시 |
 | GET | `/api/schema` | CLAUDE.md 읽기 |
-| GET | `/api/history` | Ingest 커밋 이력 |
-| GET | `/api/provenance` | 페이지별 citation 커버리지 |
-| GET | `/api/query-stats` | 최근 쿼리 wiki ratio 평균 |
+| GET | `/api/history` | 수집 커밋 이력 |
+| GET | `/api/provenance` | 페이지별 인용 커버리지 |
+| GET | `/api/query-stats` | 최근 Wiki Ratio 평균 |
 | GET | `/api/index/status` | 현재 인덱싱 전략 |
 | GET | `/api/raw/integrity` | raw/ 변조 체크 |
-| GET | `/api/reflect/status` | 마지막 성찰 실행 날짜 |
-| GET | `/api/review/list` | 30일 이상 갱신되지 않은 페이지 목록 |
-| GET | `/api/settings` | 현재 설정(모델) + 가능한 모델 목록 |
-| POST | `/api/settings` | 설정 변경 (예: `{model: "claude-sonnet-4-6"}`) |
-| POST | `/api/ingest` | 소스 수집 (변경 diff, 판단 근거, 자동 커밋) |
-| POST | `/api/query` | 파일 추적 포함 질문 |
-| POST | `/api/query/save` | 답변을 위키 페이지로 저장 |
-| POST | `/api/lint` | 검진 체크리스트 실행 |
-| POST | `/api/lint/fix` | 검진 결과 자동 수정 |
-| POST | `/api/reflect` | 메타 분석 실행 |
-| POST | `/api/write` | 작성 동반자 (주제 → 에세이 초안) |
-| POST | `/api/compare` | 두 페이지 비교, 선택적 저장 |
-| POST | `/api/review/refresh` | 오래된 페이지를 Claude로 갱신 |
-| POST | `/api/slides` | 페이지를 Marp 슬라이드로 내보내기 |
-| POST | `/api/search` | TF-IDF 전문 검색 |
-| POST | `/api/suggest/sources` | 다음에 수집할 소스 제안 |
-| POST | `/api/provenance/fix` | 페이지 인용 보완 |
+| GET | `/api/reflect/status` | 마지막 성찰 날짜 |
+| GET | `/api/review/list` | 30일+ 갱신 안 된 페이지 |
+| GET | `/api/settings` | 현재 모델 + 사용 가능한 모델 |
+| POST | `/api/settings` | `{model}` — 모델 변경 |
+| POST | `/api/ingest` | `{title, content, folder}` — diff + 판단 근거 + 자동 커밋 |
+| POST | `/api/query` | `{question}` — files_read + wiki_ratio 추적 |
+| POST | `/api/query/save` | `{title, content}` — analysis 페이지로 저장 |
+| POST | `/api/lint` / `/api/lint/fix` | 검진 + 자동 수정 |
+| POST | `/api/reflect` | `{window}` — 메타 분석 |
+| POST | `/api/write` | `{topic, length, style}` — 작성 동반자 |
+| POST | `/api/compare` | `{page_a, page_b, save_as?}` |
+| POST | `/api/review/refresh` | `{filename}` — 오래된 페이지 갱신 |
+| POST | `/api/slides` | `{page}` — Marp 내보내기 |
+| POST | `/api/search` | `{query, top_k}` — TF-IDF |
+| POST | `/api/suggest/sources` | 다음 수집할 소스 추천 |
+| POST | `/api/assistant` | `{question, lang, history}` — 대시보드 도우미 챗봇 |
+| POST | `/api/provenance/fix` | `{page}` — 인용 보완 |
 | POST | `/api/index/rebuild` | 인덱스 강제 재빌드 |
-| POST | `/api/revert` | 수집 커밋 되돌리기 |
-| POST | `/api/page` | 페이지 생성 |
-| POST | `/api/page/update` | 페이지 편집 |
-| POST | `/api/page/delete` | 페이지 삭제 |
+| POST | `/api/revert` | `{commit_hash}` — 수집 되돌리기 |
+| POST | `/api/page` / `/api/page/update` / `/api/page/delete` | 페이지 CRUD |
 | POST | `/api/folder` | 폴더 생성 |
 | POST | `/api/schema` | CLAUDE.md 수정 |
 
-## 필요 조건
+---
 
-- Python 3.10+ (pip 의존성 없음)
-- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) (`npm install -g @anthropic-ai/claude-code`)
-- 브라우저
-- Obsidian (선택이지만 권장)
+## CLI 사용 (선택)
 
-## Obsidian 팁
+대시보드의 모든 기능은 터미널에서도 작동합니다:
 
-- **Graph View** (`Cmd+G`) — 위키 구조를 한눈에
-- **Backlinks** — 현재 페이지를 참조하는 모든 페이지 확인
-- **`Cmd+Shift+D`** — 클리핑한 기사의 이미지를 `raw/assets/`로 다운로드
-- **Web Clipper** — 브라우저 확장으로 웹 기사를 `raw/`에 마크다운으로 저장
-- **Dataview** — frontmatter 기반 동적 테이블 (Community Plugins에서 설치)
+```bash
+claude                                # 대화형
+"Ingest raw/some-article.md"
+"Self-Attention이 뭐야?"
+"Lint the wiki"
+"Reflect on the last 10 ingests"
+```
+
+---
+
+## 단축키
+
+- `Cmd/Ctrl + B` — 사이드바 접기/펼치기
+- `Esc` — 드롭다운 / 모달 닫기
+
+---
 
 ## 라이선스
 
