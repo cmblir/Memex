@@ -889,6 +889,253 @@ def do_lint_fix():
     return {"ok": ok, "result": out, "error": err}
 
 
+# ─── Writing Companion ───
+
+def do_write(topic, length="medium", style="blog"):
+    if not topic or not topic.strip():
+        return {"ok": False, "error": "Topic is required"}
+    word_map = {"short": "약 300단어", "medium": "약 700단어", "long": "약 1500단어"}
+    style_map = {
+        "blog": "블로그 글 스타일 (친근하고 명확하게)",
+        "paper": "학술적 스타일 (정확하고 엄밀하게)",
+        "explainer": "해설 스타일 (초보자도 이해 가능하게)",
+    }
+    idx_inst = get_index_instruction(WIKI_DIR)
+    prompt = f"""{idx_inst}
+주제: {topic}
+분량: {word_map.get(length, '약 700단어')}
+스타일: {style_map.get(style, '블로그 글 스타일')}
+
+위키에 축적된 페이지를 활용해 이 주제로 글을 작성해.
+
+요구사항:
+- 모든 사실적 주장에 [^src-소스슬러그] inline citation 필수
+- 관련 위키 페이지는 [[wikilink]]로 참조
+- 페이지 최하단에 [^src-*]: [[source-*]] 형식 각주 정의
+- 서론-본론-결론 구조
+- 위키에 관련 소스가 없는 주제는 언급하지 마
+
+바로 글만 출력 (메타 설명 없이)."""
+    ok, out, err = run_claude(prompt)
+    return {"ok": ok, "draft": out, "error": err}
+
+
+# ─── Page Comparison ───
+
+def do_compare(page_a, page_b, save_as=""):
+    if not page_a or not page_b:
+        return {"ok": False, "error": "Both pages required"}
+    fa = WIKI_DIR / page_a
+    fb = WIKI_DIR / page_b
+    if not fa.exists() or not fb.exists():
+        return {"ok": False, "error": "Page not found"}
+
+    prompt = f"""wiki/{page_a}와 wiki/{page_b}를 읽고 비교 분석해.
+
+구조:
+## 공통점
+## 차이점
+## 관계 / 시사점
+
+각 주장에 [^src-*] citation 포함. 양 페이지의 소스를 모두 활용."""
+
+    ok, out, err = run_claude(prompt)
+    saved_file = None
+    if ok and save_as:
+        slug = make_slug(save_as)
+        target = WIKI_DIR / f"{slug}.md"
+        n = 2
+        while target.exists():
+            target = WIKI_DIR / f"{slug}-{n}.md"
+            n += 1
+        today = datetime.now().strftime("%Y-%m-%d")
+        fm = f"""---
+title: "{save_as}"
+type: comparison
+created: {today}
+last_updated: {today}
+sources: []
+tags:
+  - comparison
+---
+
+# {save_as}
+
+{out}
+"""
+        target.write_text(fm, encoding="utf-8")
+        saved_file = str(target.relative_to(WIKI_DIR))
+        git_mgr._stage_all()
+        git_mgr._run("commit", "-m", f"compare: {save_as}")
+    return {"ok": ok, "analysis": out, "error": err, "saved": saved_file}
+
+
+# ─── Spaced Review ───
+
+def do_review_list(days=30):
+    from datetime import timedelta
+    cutoff = datetime.now() - timedelta(days=days)
+    stale = []
+    for md in WIKI_DIR.rglob("*.md"):
+        text = md.read_text("utf-8")
+        meta, _ = parse_fm(text)
+        if meta.get("status", "active") != "active":
+            continue
+        if meta.get("type") in ("overview", "source-summary"):
+            continue
+        last_updated = meta.get("last_updated") or meta.get("updated")
+        if not last_updated:
+            continue
+        try:
+            lu = datetime.strptime(last_updated[:10], "%Y-%m-%d")
+            if lu < cutoff:
+                days_stale = (datetime.now() - lu).days
+                stale.append({
+                    "filename": str(md.relative_to(WIKI_DIR)),
+                    "title": meta.get("title", md.stem),
+                    "type": meta.get("type", ""),
+                    "last_updated": last_updated[:10],
+                    "days_stale": days_stale,
+                })
+        except ValueError:
+            continue
+    stale.sort(key=lambda x: -x["days_stale"])
+    return stale
+
+
+def do_review_refresh(filename):
+    fp = WIKI_DIR / filename
+    if not fp.exists():
+        return {"ok": False, "error": "Page not found"}
+    prompt = f"""wiki/{filename}를 읽고 다음을 수행해:
+1. 관련 소스(wiki/index.md의 Sources 섹션) 중 이 페이지에 새 관점·정보를 제공할 수 있는 소스가 있는지 확인
+2. 있다면 해당 소스의 citation과 함께 새 정보를 추가해 페이지를 갱신
+3. last_updated를 오늘 날짜로 갱신
+4. 추가한 내용을 요약해 보고
+
+만약 관련 신규 소스가 없다면 "새로운 갱신 사항 없음. last_updated만 갱신함."으로 응답하고 last_updated만 갱신."""
+    ok, out, err = run_claude(prompt)
+    if ok:
+        git_mgr._stage_all()
+        git_mgr._run("commit", "-m", f"review: refresh {filename}")
+    return {"ok": ok, "result": out, "error": err}
+
+
+# ─── Marp Slide Export ───
+
+def do_slides(page_filename):
+    fp = WIKI_DIR / page_filename
+    if not fp.exists():
+        return {"ok": False, "error": "Page not found"}
+    content = fp.read_text("utf-8")
+    meta, body = parse_fm(content)
+    title = meta.get("title", page_filename.replace(".md", ""))
+
+    prompt = f"""wiki/{page_filename}의 내용을 Marp 슬라이드 덱으로 변환해.
+
+요구사항:
+- Marp frontmatter 포함 (marp: true, theme: default, paginate: true, class: invert)
+- 첫 슬라이드는 제목 + 부제
+- 한 슬라이드당 한 주제
+- bullet point 3-5개 내외
+- 코드 블록은 syntax highlighting 유지
+- 슬라이드 구분은 --- 사용
+- 원본의 citation ([^src-*])은 각 슬라이드 footer에 유지
+
+출력은 순수 Marp 마크다운만 (설명 없이)."""
+    ok, out, err = run_claude(prompt)
+    return {"ok": ok, "marp": out, "error": err, "title": title}
+
+
+# ─── Smart Search (TF-IDF) ───
+
+def _tokenize(text):
+    return re.findall(r"[\w가-힣]+", text.lower())
+
+
+def do_search(query, top_k=10):
+    """간단한 TF-IDF 기반 검색 (stdlib만 사용)"""
+    import math
+    q_tokens = _tokenize(query)
+    if not q_tokens:
+        return {"ok": True, "results": []}
+
+    docs = {}
+    for md in WIKI_DIR.rglob("*.md"):
+        rel = str(md.relative_to(WIKI_DIR))
+        text = md.read_text("utf-8")
+        _, body = parse_fm(text)
+        tokens = _tokenize(body)
+        if tokens:
+            docs[rel] = {"tokens": tokens, "body": body}
+
+    if not docs:
+        return {"ok": True, "results": []}
+
+    # df 계산
+    df = {}
+    for doc in docs.values():
+        for tok in set(doc["tokens"]):
+            df[tok] = df.get(tok, 0) + 1
+    N = len(docs)
+
+    # 각 문서의 TF-IDF 점수
+    scored = []
+    for rel, doc in docs.items():
+        tf = {}
+        for tok in doc["tokens"]:
+            tf[tok] = tf.get(tok, 0) + 1
+        score = 0.0
+        for qt in q_tokens:
+            if qt in tf and qt in df:
+                idf = math.log((N + 1) / (df[qt] + 1)) + 1
+                score += (tf[qt] / len(doc["tokens"])) * idf
+        if score > 0:
+            # 스니펫: 첫 번째 매칭 주변
+            snippet = ""
+            body_low = doc["body"].lower()
+            for qt in q_tokens:
+                idx = body_low.find(qt)
+                if idx >= 0:
+                    start = max(0, idx - 60)
+                    end = min(len(doc["body"]), idx + 120)
+                    snippet = ("..." if start > 0 else "") + doc["body"][start:end] + ("..." if end < len(doc["body"]) else "")
+                    break
+            scored.append({"filename": rel, "score": round(score, 4), "snippet": snippet})
+    scored.sort(key=lambda x: -x["score"])
+    return {"ok": True, "results": scored[:top_k]}
+
+
+# ─── Related Sources Suggestion ───
+
+def do_suggest_sources():
+    prompt = """wiki/index.md와 최근 log.md를 읽어 현재 위키의 지식 커버리지를 파악해.
+
+다음을 분석해 5~10개의 구체적인 "다음에 ingest할만한 소스 검색어"를 제안:
+
+1. 언급되지만 전용 페이지가 없는 엔티티/컨셉
+2. 특정 주제에서 소스가 부족한 영역
+3. 최근 ingest의 확장 방향 (예: 방금 Transformer를 ingest했다면 → BERT 논문, GPT-3 논문 등)
+
+출력 형식 (JSON 파싱 가능하게):
+```
+SUGGESTION: "검색어 또는 논문 제목" | WHY: 이유 | EXPECTED_PAGES: 이 소스가 보강할 위키 페이지 리스트
+```
+각 줄마다 하나씩. 설명 없이 제안 리스트만."""
+    ok, out, err = run_claude(prompt)
+    suggestions = []
+    if ok:
+        for line in out.split("\n"):
+            if line.strip().startswith("SUGGESTION:"):
+                parts = line.split("|")
+                if len(parts) >= 2:
+                    sugg = parts[0].replace("SUGGESTION:", "").strip().strip('"')
+                    why = parts[1].replace("WHY:", "").strip() if len(parts) > 1 else ""
+                    expected = parts[2].replace("EXPECTED_PAGES:", "").strip() if len(parts) > 2 else ""
+                    suggestions.append({"suggestion": sugg, "why": why, "expected_pages": expected})
+    return {"ok": ok, "suggestions": suggestions, "raw": out, "error": err}
+
+
 # ─── CRUD ───
 
 def create_folder(name, parent=""):
@@ -979,6 +1226,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(get_strategy(WIKI_DIR))
         if path == "/api/raw/integrity":
             return self._json(check_raw_integrity())
+        if path == "/api/review/list":
+            return self._json(do_review_list())
         if path == "/api/reflect/status":
             last = get_last_reflect_date()
             days_ago = None
@@ -1025,6 +1274,18 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(do_fix_citations(body.get("page", "")))
         if path == "/api/reflect":
             return self._json(do_reflect(body.get("window", "last-10-ingests")))
+        if path == "/api/write":
+            return self._json(do_write(body.get("topic", ""), body.get("length", "medium"), body.get("style", "blog")))
+        if path == "/api/compare":
+            return self._json(do_compare(body.get("page_a", ""), body.get("page_b", ""), body.get("save_as", "")))
+        if path == "/api/review/refresh":
+            return self._json(do_review_refresh(body.get("filename", "")))
+        if path == "/api/slides":
+            return self._json(do_slides(body.get("page", "")))
+        if path == "/api/search":
+            return self._json(do_search(body.get("query", ""), body.get("top_k", 10)))
+        if path == "/api/suggest/sources":
+            return self._json(do_suggest_sources())
         if path == "/api/index/rebuild":
             result = rebuild_index(WIKI_DIR)
             if result["ok"]:

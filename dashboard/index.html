@@ -204,37 +204,42 @@ main{display:flex;flex-direction:column;overflow:hidden}
   <header>
     <h1><span>&#9670;</span> Karpathy LLM dashboard</h1>
     <div class="hstats" id="hstats"></div>
+    <button id="langToggle" onclick="toggleLang()" title="Language" style="margin-left:8px;padding:3px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--muted);font-size:11px;cursor:pointer;font-weight:600">EN</button>
   </header>
   <aside class="side">
-    <input type="text" id="q" placeholder="Search pages...">
+    <input type="text" id="q" data-i18n-ph="search_placeholder" placeholder="Search pages...">
     <div class="tabs">
-      <button class="on" data-t="tree">Tree</button>
-      <button data-t="pages">Pages</button>
-      <button data-t="log">Log</button>
+      <button class="on" data-t="tree" data-i18n="tab_tree">Tree</button>
+      <button data-t="pages" data-i18n="tab_pages">Pages</button>
+      <button data-t="log" data-i18n="tab_log">Log</button>
     </div>
     <div class="slist" id="slist"></div>
     <div class="status-bar" id="statusBar">
-      <div class="status-row"><div class="status-dot loading" id="dotClaude"></div><span class="status-label">Claude CLI <b id="lblClaude">checking...</b></span></div>
+      <div class="status-row"><div class="status-dot loading" id="dotClaude"></div><span class="status-label"><span data-i18n="status_claude">Claude CLI</span> <b id="lblClaude">checking...</b></span></div>
       <div class="status-row"><div class="status-dot loading" id="dotObsidian"></div><span class="status-label">Obsidian <b id="lblObsidian">checking...</b></span></div>
     </div>
   </aside>
   <main>
     <div class="idx-banner" id="idxBanner"><span id="idxBannerText"></span><button class="idx-close" onclick="this.parentElement.classList.remove('show')">&times;</button></div>
     <div class="toolbar">
-      <button class="on" data-v="page">Page</button>
-      <button data-v="ingest">+ Ingest</button>
-      <button data-v="query">Query</button>
-      <button data-v="lint">Lint</button>
-      <button data-v="reflect" id="reflectBtn">Reflect</button>
-      <button data-v="graph">Graph</button>
-      <button data-v="history">History</button>
-      <button data-v="provenance">Provenance</button>
+      <button class="on" data-v="page" data-i18n="nav_page">Page</button>
+      <button data-v="ingest" data-i18n="nav_ingest">+ Ingest</button>
+      <button data-v="query" data-i18n="nav_query">Query</button>
+      <button data-v="lint" data-i18n="nav_lint">Lint</button>
+      <button data-v="reflect" id="reflectBtn" data-i18n="nav_reflect">Reflect</button>
+      <button data-v="write" data-i18n="nav_write">Write</button>
+      <button data-v="compare" data-i18n="nav_compare">Compare</button>
+      <button data-v="review" data-i18n="nav_review">Review</button>
+      <button data-v="search" data-i18n="nav_search">Search</button>
+      <button data-v="graph" data-i18n="nav_graph">Graph</button>
+      <button data-v="history" data-i18n="nav_history">History</button>
+      <button data-v="provenance" data-i18n="nav_provenance">Provenance</button>
       <div class="sep"></div>
-      <button onclick="showCreateFolder()">+ Folder</button>
-      <button onclick="showCreatePage()">+ Page</button>
+      <button onclick="showCreateFolder()" data-i18n="nav_folder">+ Folder</button>
+      <button onclick="showCreatePage()" data-i18n="nav_new_page">+ Page</button>
       <div class="sep"></div>
       <button data-v="schema" style="border-color:var(--orange);color:var(--orange)">CLAUDE.md</button>
-      <button data-v="guide" style="border-color:var(--purple);color:var(--purple)">? Guide</button>
+      <button data-v="guide" style="border-color:var(--purple);color:var(--purple)" data-i18n="nav_guide">? Guide</button>
       <span class="bc" id="bc"></span>
     </div>
     <div class="content" id="content"></div>
@@ -263,6 +268,157 @@ main{display:flex;flex-direction:column;overflow:hidden}
 const TC={source:'#3fb950',entity:'#58a6ff',concept:'#bc8cff',comparison:'#d29922',analysis:'#39d2c0',overview:'#8b949e',missing:'#f85149',unknown:'#f85149'};
 let D=null,folders=null,view='page',cur=null,tab='tree',sq='',lastHash='',editing=false;
 
+// ─── i18n ───
+const I18N={
+  en:{
+    search_placeholder:'Search pages...',
+    tab_tree:'Tree', tab_pages:'Pages', tab_log:'Log',
+    status_claude:'Claude CLI',
+    nav_page:'Page', nav_ingest:'+ Ingest', nav_query:'Query', nav_lint:'Lint',
+    nav_reflect:'Reflect', nav_write:'Write', nav_compare:'Compare', nav_review:'Review',
+    nav_search:'Search', nav_graph:'Graph', nav_history:'History', nav_provenance:'Provenance',
+    nav_folder:'+ Folder', nav_new_page:'+ Page', nav_guide:'? Guide',
+    ingest_title:'Ingest Source',
+    ingest_desc:'Paste content and click Ingest. It will be saved to raw/ and Claude will generate wiki pages.',
+    field_title:'Title', field_content:'Content (Markdown)', field_folder:'Target Folder',
+    ingest_btn:'Ingest with Claude', ingest_processing:'Calling Claude CLI... (up to 3 min)',
+    ingest_done:'Ingest Complete',
+    query_title:'Query', query_desc:'Ask questions against the accumulated wiki. Claude finds relevant pages and synthesizes an answer.',
+    field_question:'Question', query_btn:'Ask Claude', query_processing:'Claude is searching the wiki...',
+    query_save_to_wiki:'Save to wiki', query_save_placeholder:'Page title (e.g. Self-Attention analysis)',
+    lint_title:'Wiki Lint', lint_desc:'Check for contradictions, orphan pages, missing citations, and data gaps.',
+    lint_btn:'Run Lint', lint_fix_btn:'Apply auto-fix',
+    reflect_title:'Reflect', reflect_desc:'Meta-analysis of recent ingests, logs, and queries. Suggests improvements. Recommended weekly.',
+    reflect_window:'Analysis Window', reflect_win_10:'Last 10 ingests', reflect_win_week:'Last week', reflect_win_all:'All',
+    reflect_btn:'Run Reflect', reflect_processing:'Claude is meta-analyzing the wiki... (1-3 min)',
+    write_title:'Writing Companion',
+    write_desc:'Draft an essay or article using the accumulated wiki. All claims get citations automatically.',
+    write_topic:'Topic', write_topic_ph:'e.g. Why self-attention replaced RNNs',
+    write_length:'Length', write_short:'Short (~300w)', write_medium:'Medium (~700w)', write_long:'Long (~1500w)',
+    write_style:'Style', write_style_blog:'Blog post', write_style_paper:'Academic', write_style_explainer:'Explainer',
+    write_btn:'Draft with Claude', write_processing:'Claude is drafting... (1-2 min)',
+    compare_title:'Page Comparison',
+    compare_desc:'Select two pages. Claude will analyze similarities, differences, and implications.',
+    compare_a:'Page A', compare_b:'Page B', compare_btn:'Compare',
+    compare_processing:'Claude is comparing... (~1 min)',
+    review_title:'Spaced Review',
+    review_desc:'Active pages not updated for 30+ days. Refresh them with new perspective.',
+    review_empty:'All pages are fresh (<30 days).',
+    review_refresh:'Refresh with Claude',
+    search_title:'Smart Search', search_desc:'TF-IDF full-text search across all wiki pages.',
+    search_ph:'Enter keywords...', search_btn:'Search',
+    search_no_results:'No matching pages.',
+    history_title:'Ingest History',
+    history_desc:'Each ingest is a git commit. Revert to undo the changes of a specific ingest.',
+    provenance_title:'Citation Provenance',
+    provenance_desc:'Ratio of claims with inline citations per page. Source pages excluded.',
+    guide_title:'Usage Guide', guide_loading:'Loading...',
+    btn_edit:'Edit', btn_delete:'Delete', btn_save:'Save', btn_cancel:'Cancel',
+    btn_approve:'Approve', btn_revert:'Revert', btn_preview:'Preview', btn_fix:'Fix',
+    btn_create:'Create',
+    err_title_required:'Title is required.', err_content_required:'Content is required.',
+    err_network:'Network error: ',
+    confirm_revert:'Revert: This will undo the changes made by this ingest.',
+    confirm_delete:'Delete this page? This cannot be undone.',
+    save_success:'Saved', save_fail:'Save failed: ',
+    page_count:'pages', source_count:'sources', link_count:'links',
+    wiki_ratio_high:'Wiki is serving as the primary knowledge source.',
+    wiki_ratio_mid:'Mixing wiki and raw sources. Consider more ingests.',
+    wiki_ratio_low:'Wiki is not replacing raw effectively. Check ingest quality.',
+    files_read_summary:'This answer read',
+    wiki_files:'wiki files', raw_files:'raw files',
+    show_files:'files list', reasoning:'Reasoning:',
+    created:'Created', modified:'Modified',
+    new_folder:'New Folder', folder_name:'Folder Name', parent:'Parent',
+    new_page:'New Page', page_type:'Type',
+    delete_confirm_title:'Delete Page',
+    schema_title:'CLAUDE.md', schema_desc:'This file tells Claude how to operate the wiki. Changes apply from next Ingest/Query/Lint.',
+    last_updated:'Updated',
+    type_source:'Source', type_entity:'Entity', type_concept:'Concept',
+    type_comparison:'Comparison', type_analysis:'Analysis', type_overview:'Overview',
+  },
+  ko:{
+    search_placeholder:'페이지 검색...',
+    tab_tree:'트리', tab_pages:'페이지', tab_log:'로그',
+    status_claude:'Claude CLI',
+    nav_page:'페이지', nav_ingest:'+ 수집', nav_query:'질문', nav_lint:'검진',
+    nav_reflect:'성찰', nav_write:'작성', nav_compare:'비교', nav_review:'복습',
+    nav_search:'검색', nav_graph:'그래프', nav_history:'이력', nav_provenance:'출처',
+    nav_folder:'+ 폴더', nav_new_page:'+ 페이지', nav_guide:'? 가이드',
+    ingest_title:'소스 수집',
+    ingest_desc:'내용을 붙여넣고 수집 버튼을 누르세요. raw/에 저장되고 Claude가 위키 페이지를 생성합니다.',
+    field_title:'제목', field_content:'내용 (Markdown)', field_folder:'저장 폴더',
+    ingest_btn:'Claude로 수집', ingest_processing:'Claude CLI 호출 중... (최대 3분)',
+    ingest_done:'수집 완료',
+    query_title:'질문', query_desc:'축적된 위키에 질문합니다. Claude가 관련 페이지를 찾아 답변을 합성합니다.',
+    field_question:'질문', query_btn:'Claude에게 질문', query_processing:'Claude가 위키를 검색 중...',
+    query_save_to_wiki:'위키에 저장', query_save_placeholder:'페이지 제목 (예: Self-Attention 분석)',
+    lint_title:'위키 건강 검진', lint_desc:'모순, 고아 페이지, 누락된 인용, 데이터 공백을 검사합니다.',
+    lint_btn:'검진 실행', lint_fix_btn:'자동 수정 적용',
+    reflect_title:'성찰', reflect_desc:'최근 수집·로그·쿼리의 메타 분석으로 개선점을 제안합니다. 주 1회 권장.',
+    reflect_window:'분석 범위', reflect_win_10:'최근 10회 수집', reflect_win_week:'최근 1주', reflect_win_all:'전체',
+    reflect_btn:'성찰 실행', reflect_processing:'Claude가 위키를 메타 분석 중... (1-3분)',
+    write_title:'작성 동반자',
+    write_desc:'축적된 위키를 활용해 에세이나 글을 초안합니다. 모든 주장에 인용이 자동 삽입됩니다.',
+    write_topic:'주제', write_topic_ph:'예: Self-Attention이 RNN을 대체한 이유',
+    write_length:'분량', write_short:'짧게 (~300단어)', write_medium:'보통 (~700단어)', write_long:'길게 (~1500단어)',
+    write_style:'스타일', write_style_blog:'블로그 글', write_style_paper:'학술', write_style_explainer:'해설',
+    write_btn:'Claude로 초안 작성', write_processing:'Claude가 초안 작성 중... (1-2분)',
+    compare_title:'페이지 비교',
+    compare_desc:'두 페이지를 선택하세요. Claude가 공통점·차이·시사점을 분석합니다.',
+    compare_a:'페이지 A', compare_b:'페이지 B', compare_btn:'비교',
+    compare_processing:'Claude가 비교 중... (약 1분)',
+    review_title:'복습',
+    review_desc:'30일 이상 갱신되지 않은 active 페이지. 새 관점으로 갱신하세요.',
+    review_empty:'모든 페이지가 신선합니다 (30일 미만).',
+    review_refresh:'Claude로 갱신',
+    search_title:'스마트 검색', search_desc:'전체 위키에 대한 TF-IDF 전문 검색.',
+    search_ph:'키워드 입력...', search_btn:'검색',
+    search_no_results:'매칭되는 페이지가 없습니다.',
+    history_title:'수집 이력',
+    history_desc:'각 수집은 git 커밋입니다. Revert로 해당 수집의 변경을 되돌립니다.',
+    provenance_title:'인용 커버리지',
+    provenance_desc:'페이지별 주장 대비 인라인 인용 비율. 소스 페이지는 제외.',
+    guide_title:'사용 가이드', guide_loading:'로딩 중...',
+    btn_edit:'편집', btn_delete:'삭제', btn_save:'저장', btn_cancel:'취소',
+    btn_approve:'승인', btn_revert:'되돌리기', btn_preview:'미리보기', btn_fix:'수정',
+    btn_create:'생성',
+    err_title_required:'제목이 필요합니다.', err_content_required:'내용이 필요합니다.',
+    err_network:'네트워크 오류: ',
+    confirm_revert:'되돌리기: 이 수집이 만든 변경이 모두 취소됩니다.',
+    confirm_delete:'이 페이지를 삭제합니다. 되돌릴 수 없습니다.',
+    save_success:'저장됨', save_fail:'저장 실패: ',
+    page_count:'페이지', source_count:'소스', link_count:'링크',
+    wiki_ratio_high:'위키가 주요 지식 소스로 잘 작동합니다.',
+    wiki_ratio_mid:'위키와 raw를 혼합 참조 중. 수집을 늘려보세요.',
+    wiki_ratio_low:'위키가 raw를 대체하지 못하고 있음. 수집 품질 점검 필요.',
+    files_read_summary:'이 답변은',
+    wiki_files:'wiki 파일', raw_files:'raw 파일',
+    show_files:'파일 목록', reasoning:'판단 근거:',
+    created:'생성', modified:'수정',
+    new_folder:'새 폴더', folder_name:'폴더 이름', parent:'상위',
+    new_page:'새 페이지', page_type:'타입',
+    delete_confirm_title:'페이지 삭제',
+    schema_title:'CLAUDE.md', schema_desc:'이 파일이 Claude에게 위키 운영 방법을 알려줍니다. 변경 시 다음 수집/질문/검진부터 적용.',
+    last_updated:'갱신일',
+    type_source:'소스', type_entity:'엔티티', type_concept:'개념',
+    type_comparison:'비교', type_analysis:'분석', type_overview:'개요',
+  },
+};
+let LANG=localStorage.getItem('karpathy-lang')||'en';
+function t(k){return (I18N[LANG]&&I18N[LANG][k])||(I18N.en[k])||k;}
+function applyI18n(){
+  document.documentElement.setAttribute('lang',LANG);
+  document.querySelectorAll('[data-i18n]').forEach(function(el){
+    var k=el.getAttribute('data-i18n'); var v=t(k); if(v)el.textContent=v;
+  });
+  document.querySelectorAll('[data-i18n-ph]').forEach(function(el){
+    var k=el.getAttribute('data-i18n-ph'); var v=t(k); if(v)el.setAttribute('placeholder',v);
+  });
+  var btn=document.getElementById('langToggle'); if(btn)btn.textContent=LANG==='en'?'한국어':'EN';
+}
+function toggleLang(){LANG=LANG==='en'?'ko':'en';localStorage.setItem('karpathy-lang',LANG);applyI18n();if(cur)showPage(cur);else if(view==='ingest')showIngest();else if(view==='query')showQuery();else if(view==='lint')showLint();else if(view==='reflect')showReflect();else if(view==='write')showWrite();else if(view==='compare')showCompare();else if(view==='review')showReview();else if(view==='search')showSearch();else if(view==='history')showHistory();else if(view==='provenance')showProvenance();else if(view==='guide')showGuide();else if(view==='schema')showSchema();}
+
 // ─── marked callout extension ───
 const renderer=new marked.Renderer();
 const origBlockquote=renderer.blockquote;
@@ -280,7 +436,7 @@ renderer.blockquote=function(body){
 marked.setOptions({renderer});
 
 // ─── Init ───
-async function init(){await Promise.all([loadWiki(),loadFolders(),checkStatus()]);render();setInterval(checkStatus,15000);setInterval(pollChanges,5000);checkReflectStatus();}
+async function init(){applyI18n();await Promise.all([loadWiki(),loadFolders(),checkStatus()]);render();setInterval(checkStatus,15000);setInterval(pollChanges,5000);checkReflectStatus();}
 async function loadWiki(){try{const r=await fetch('/api/wiki');D=await r.json();}catch(e){}}
 async function loadFolders(){try{const r=await fetch('/api/folders');folders=await r.json();}catch(e){}}
 async function checkStatus(){
@@ -411,7 +567,11 @@ function showPage(fn){
   var c=TC[p.type]||'var(--muted)';
   var tags=p.tags.map(function(t){return '<span class="tag">'+esc(t)+'</span>';}).join('');
   var isSys=['index.md','log.md','overview.md'].indexOf(fn)>=0;
-  var actions='<div class="page-actions"><button onclick="editPage(\''+fn+'\')">Edit</button>'+(isSys?'':'<button class="danger" onclick="showDeleteModal(\''+fn+'\',\''+esc(p.title).replace(/'/g,"\\'")+'\')">Delete</button>')+'</div>';
+  var actions='<div class="page-actions">';
+  actions+='<button onclick="editPage(\''+fn+'\')">'+t('btn_edit')+'</button>';
+  actions+='<button onclick="doSlideExport(\''+fn+'\')">Slides</button>';
+  actions+=(isSys?'':'<button class="danger" onclick="showDeleteModal(\''+fn+'\',\''+esc(p.title).replace(/'/g,"\\'")+'\')">'+t('btn_delete')+'</button>');
+  actions+='</div>';
   document.getElementById('content').innerHTML='<div class="page"><div class="pmeta"><span class="tbadge" style="background:'+c+'22;color:'+c+'">'+p.type+'</span>'+tags+actions+'</div><div class="md">'+html+'</div></div>';
   document.querySelectorAll('.md a').forEach(function(a){var h=a.getAttribute('href');if(h&&h.endsWith('.md')&&h.indexOf('://')<0){a.onclick=function(e){e.preventDefault();showPage(h);};a.style.cursor='pointer';}});
   renderSidebar();
@@ -452,31 +612,32 @@ async function confirmDelete(){
 
 // ─── Ingest ───
 function showIngest(){
-  setView('ingest');cur=null;document.getElementById('bc').innerHTML='New source → Ingest';
-  let fo='<option value="">wiki/ (root)</option>';if(folders)folders.children.forEach(c=>{fo+=`<option value="${c.name}">${c.name}/</option>`;});
-  document.getElementById('content').innerHTML=`<div class="panel"><h2>Ingest Source</h2><p class="desc">내용을 붙여넣고 Ingest 버튼을 누르면 raw/에 저장 → Claude가 위키 페이지를 자동 생성합니다.</p>
-    <div class="field"><label>Title</label><input type="text" id="ingestTitle" placeholder="Article or document title"></div>
-    <div class="field"><label>Target Folder</label><select id="ingestFolder">${fo}</select></div>
-    <div class="field"><label>Content (Markdown)</label><textarea id="ingestContent" placeholder="Paste article content here..." style="min-height:300px"></textarea></div>
-    <button class="btn btn-green" id="ingestBtn" onclick="doIngest()">Ingest with Claude</button>
-    <div id="ingestResult"></div></div>`;
+  setView('ingest');cur=null;document.getElementById('bc').innerHTML='<b>'+t('ingest_title')+'</b>';
+  var fo='<option value="">wiki/ (root)</option>';if(folders)folders.children.forEach(function(c){fo+='<option value="'+c.name+'">'+c.name+'/</option>';});
+  var h='<div class="panel"><h2>'+t('ingest_title')+'</h2><p class="desc">'+t('ingest_desc')+'</p>';
+  h+='<div class="field"><label>'+t('field_title')+'</label><input type="text" id="ingestTitle"></div>';
+  h+='<div class="field"><label>'+t('field_folder')+'</label><select id="ingestFolder">'+fo+'</select></div>';
+  h+='<div class="field"><label>'+t('field_content')+'</label><textarea id="ingestContent" style="min-height:300px"></textarea></div>';
+  h+='<button class="btn btn-green" id="ingestBtn" onclick="doIngest()">'+t('ingest_btn')+'</button>';
+  h+='<div id="ingestResult"></div></div>';
+  document.getElementById('content').innerHTML=h;
 }
 async function doIngest(){
-  const t=document.getElementById('ingestTitle').value.trim(),c=document.getElementById('ingestContent').value.trim(),f=document.getElementById('ingestFolder').value;
-  if(!t||!c){alert('Title and content are required.');return;}
-  const btn=document.getElementById('ingestBtn'),res=document.getElementById('ingestResult');
-  btn.disabled=true;btn.textContent='Ingesting...';res.className='result-box info';res.textContent='Claude CLI 호출 중... (최대 3분 소요)';
+  var ttl=document.getElementById('ingestTitle').value.trim(),ct=document.getElementById('ingestContent').value.trim(),f=document.getElementById('ingestFolder').value;
+  if(!ttl||!ct){alert(t('err_title_required'));return;}
+  var btn=document.getElementById('ingestBtn'),res=document.getElementById('ingestResult');
+  btn.disabled=true;btn.textContent=t('ingest_processing');res.className='result-box info';res.textContent=t('ingest_processing');
   try{
-    const r=await fetch('/api/ingest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:t,content:c,folder:f})});
-    const d=await r.json();
+    var r=await fetch('/api/ingest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:ttl,content:ct,folder:f})});
+    var d=await r.json();
     if(d.ok){
       await Promise.all([loadWiki(),loadFolders()]);renderStats();renderSidebar();
       showIngestResult(d);
     }else{
       res.className='result-box err';res.textContent='Error: '+d.error+'\n\n'+(d.claude_output||'');
-      btn.disabled=false;btn.textContent='Ingest with Claude';
+      btn.disabled=false;btn.textContent=t('ingest_btn');
     }
-  }catch(e){res.className='result-box err';res.textContent='Network error: '+e.message;btn.disabled=false;btn.textContent='Ingest with Claude';}
+  }catch(e){res.className='result-box err';res.textContent=t('err_network')+e.message;btn.disabled=false;btn.textContent=t('ingest_btn');}
 }
 
 function showIngestResult(d){
@@ -580,29 +741,27 @@ async function revertIngest(){
 
 // ─── Query ───
 function showQuery(){
-  setView('query');cur=null;document.getElementById('bc').innerHTML='Query · 위키에 질문하기';
-  document.getElementById('content').innerHTML=`<div class="panel"><h2>Query</h2><p class="desc">위키에 축적된 지식에 질문합니다. Claude가 관련 페이지를 찾아 답변을 합성합니다.</p>
-    <div class="field"><label>Question</label><textarea id="queryInput" placeholder="예: Transformer에서 Self-Attention이 중요한 이유는?" style="min-height:80px"></textarea></div>
-    <button class="btn btn-accent" id="queryBtn" onclick="doQuery()">Ask Claude</button>
-    <div id="queryResult"></div><div id="querySave" style="display:none"></div></div>`;
+  setView('query');cur=null;document.getElementById('bc').innerHTML='<b>'+t('query_title')+'</b>';
+  var h='<div class="panel"><h2>'+t('query_title')+'</h2><p class="desc">'+t('query_desc')+'</p>';
+  h+='<div class="field"><label>'+t('field_question')+'</label><textarea id="queryInput" style="min-height:80px"></textarea></div>';
+  h+='<button class="btn btn-accent" id="queryBtn" onclick="doQuery()">'+t('query_btn')+'</button>';
+  h+='<div id="queryResult"></div><div id="querySave" style="display:none"></div></div>';
+  document.getElementById('content').innerHTML=h;
 }
 async function doQuery(){
-  var q=document.getElementById('queryInput').value.trim();if(!q){alert('질문을 입력하세요.');return;}
+  var q=document.getElementById('queryInput').value.trim();if(!q){alert(t('field_question'));return;}
   var btn=document.getElementById('queryBtn'),res=document.getElementById('queryResult'),sv=document.getElementById('querySave');
-  btn.disabled=true;btn.textContent='Thinking...';res.className='result-box info';res.textContent='Claude가 위키를 검색 중...';sv.style.display='none';
+  btn.disabled=true;btn.textContent=t('query_processing');res.className='result-box info';res.textContent=t('query_processing');sv.style.display='none';
   try{
     var r=await fetch('/api/query',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q})});
     var d=await r.json();
     if(d.ok){
       var answer=d.answer.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g,'[$2]($1.md)').replace(/\[\[([^\]]+)\]\]/g,'[$1]($1.md)');
-
-      // files read summary
-      var fr=d.files_read||[];
-      var wf=d.wiki_files||0;var rf=d.raw_files||0;
+      var fr=d.files_read||[], wf=d.wiki_files||0, rf=d.raw_files||0;
       var ratioColor=d.wiki_ratio>=0.7?'var(--green)':d.wiki_ratio>=0.4?'var(--orange)':'var(--red)';
-      var filesHtml='<div class="qf-summary">이 답변은 <b style="color:var(--accent)">wiki '+wf+'개</b> + <b style="color:var(--orange)">raw '+rf+'개</b> 파일을 읽어 생성';
+      var filesHtml='<div class="qf-summary">'+t('files_read_summary')+' <b style="color:var(--accent)">'+wf+' '+t('wiki_files')+'</b> + <b style="color:var(--orange)">'+rf+' '+t('raw_files')+'</b>';
       filesHtml+=' · Wiki Ratio <b style="color:'+ratioColor+'">'+Math.round(d.wiki_ratio*100)+'%</b>';
-      if(fr.length>0) filesHtml+=' <button class="qf-toggle" onclick="this.parentElement.nextElementSibling.classList.toggle(\'show\')">파일 목록 '+(fr.length)+'</button>';
+      if(fr.length>0) filesHtml+=' <button class="qf-toggle" onclick="this.parentElement.nextElementSibling.classList.toggle(\'show\')">'+t('show_files')+' ('+fr.length+')</button>';
       filesHtml+='</div>';
       if(fr.length>0){
         filesHtml+='<div class="qf-list">';
@@ -612,63 +771,62 @@ async function doQuery(){
         });
         filesHtml+='</div>';
       }
-
       res.className='result-box ok';
       res.innerHTML=filesHtml+'<div class="md">'+marked.parse(answer)+'</div>';
-      // wikilinks in answer
       res.querySelectorAll('.md a').forEach(function(a){var h=a.getAttribute('href');if(h&&h.endsWith('.md')&&h.indexOf('://')<0){a.onclick=function(e){e.preventDefault();showPage(h);};a.style.cursor='pointer';}});
-      // save button
       sv.style.display='block';
-      sv.innerHTML='<div style="margin-top:12px;display:flex;gap:8px;align-items:center"><input type="text" id="saveTitle" placeholder="페이지 제목 (예: Self-Attention 분석)" style="flex:1;padding:6px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px"><button class="btn btn-outline" onclick="doQuerySave()">위키에 저장</button></div>';
+      sv.innerHTML='<div style="margin-top:12px;display:flex;gap:8px;align-items:center"><input type="text" id="saveTitle" placeholder="'+t('query_save_placeholder')+'" style="flex:1;padding:6px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px"><button class="btn btn-outline" onclick="doQuerySave()">'+t('query_save_to_wiki')+'</button></div>';
       window._lastAnswer=d.answer;
-      // update header gauge
       loadWikiRatio();
     }else{res.className='result-box err';res.textContent='Error: '+d.error;}
-  }catch(e){res.className='result-box err';res.textContent='Network error: '+e.message;}
-  btn.disabled=false;btn.textContent='Ask Claude';
+  }catch(e){res.className='result-box err';res.textContent=t('err_network')+e.message;}
+  btn.disabled=false;btn.textContent=t('query_btn');
 }
 async function doQuerySave(){
-  var title=document.getElementById('saveTitle').value.trim();if(!title){alert('제목을 입력하세요.');return;}
+  var title=document.getElementById('saveTitle').value.trim();if(!title){alert(t('err_title_required'));return;}
   var btn=document.querySelector('#querySave button');
-  if(btn){btn.disabled=true;btn.textContent='저장 중...';}
+  if(btn){btn.disabled=true;btn.textContent='...';}
   try{
     var r=await fetch('/api/query/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:title,content:window._lastAnswer||''})});
     var d=await r.json();
     if(d.ok&&d.filename){
       await Promise.all([loadWiki(),loadFolders()]);renderStats();renderSidebar();showPage(d.filename);
     }else{
-      alert('저장 실패: '+(d.error||'알 수 없는 오류'));
+      alert(t('save_fail')+(d.error||''));
     }
-  }catch(e){alert('Network error: '+e.message);}
-  if(btn){btn.disabled=false;btn.textContent='위키에 저장';}
+  }catch(e){alert(t('err_network')+e.message);}
+  if(btn){btn.disabled=false;btn.textContent=t('query_save_to_wiki');}
 }
 
 // ─── Lint ───
 function showLint(){
-  setView('lint');cur=null;document.getElementById('bc').innerHTML='Lint · 위키 건강 검진';
-  document.getElementById('content').innerHTML=`<div class="panel"><h2>Wiki Lint</h2><p class="desc">모순, 고아 페이지, 누락된 교차참조, 데이터 갭을 검사합니다.</p>
-    <button class="btn btn-orange" id="lintBtn" onclick="doLint()">Run Lint</button>
-    <div id="lintResult"></div><div id="lintFix" style="display:none"></div></div>`;
+  setView('lint');cur=null;document.getElementById('bc').innerHTML='<b>'+t('lint_title')+'</b>';
+  var h='<div class="panel"><h2>'+t('lint_title')+'</h2><p class="desc">'+t('lint_desc')+'</p>';
+  h+='<button class="btn btn-orange" id="lintBtn" onclick="doLint()">'+t('lint_btn')+'</button>';
+  h+='<div id="lintResult"></div><div id="lintFix" style="display:none"></div></div>';
+  document.getElementById('content').innerHTML=h;
 }
 async function doLint(){
-  const btn=document.getElementById('lintBtn'),res=document.getElementById('lintResult'),fx=document.getElementById('lintFix');
-  btn.disabled=true;btn.textContent='Scanning...';res.className='result-box info';res.textContent='Claude가 위키를 점검 중...';fx.style.display='none';
-  try{const r=await fetch('/api/lint',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});const d=await r.json();
+  var btn=document.getElementById('lintBtn'),res=document.getElementById('lintResult'),fx=document.getElementById('lintFix');
+  btn.disabled=true;btn.textContent='...';res.className='result-box info';res.textContent='Claude...';fx.style.display='none';
+  try{
+    var r=await fetch('/api/lint',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});var d=await r.json();
     if(d.ok){
-      let report=d.report.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g,'[$2]($1.md)').replace(/\[\[([^\]]+)\]\]/g,'[$1]($1.md)');
+      var report=d.report.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g,'[$2]($1.md)').replace(/\[\[([^\]]+)\]\]/g,'[$1]($1.md)');
       res.className='result-box ok';res.innerHTML='<div class="md">'+marked.parse(report)+'</div>';
-      res.querySelectorAll('.md a').forEach(a=>{const h=a.getAttribute('href');if(h&&h.endsWith('.md')&&!h.includes('://')){a.onclick=e=>{e.preventDefault();showPage(h);};a.style.cursor='pointer';}});
-      fx.style.display='block';fx.innerHTML=`<button class="btn btn-orange" style="margin-top:12px" onclick="doLintFix()">자동 수정 적용</button><div id="lintFixResult"></div>`;
+      res.querySelectorAll('.md a').forEach(function(a){var h=a.getAttribute('href');if(h&&h.endsWith('.md')&&h.indexOf('://')<0){a.onclick=function(e){e.preventDefault();showPage(h);};a.style.cursor='pointer';}});
+      fx.style.display='block';fx.innerHTML='<button class="btn btn-orange" style="margin-top:12px" onclick="doLintFix()">'+t('lint_fix_btn')+'</button><div id="lintFixResult"></div>';
     }else{res.className='result-box err';res.textContent='Error: '+d.error;}
-  }catch(e){res.className='result-box err';res.textContent='Network error: '+e.message;}
-  btn.disabled=false;btn.textContent='Run Lint';
+  }catch(e){res.className='result-box err';res.textContent=t('err_network')+e.message;}
+  btn.disabled=false;btn.textContent=t('lint_btn');
 }
 async function doLintFix(){
-  const res=document.getElementById('lintFixResult');res.className='result-box info';res.textContent='수정 적용 중...';
-  try{const r=await fetch('/api/lint/fix',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});const d=await r.json();
+  var res=document.getElementById('lintFixResult');res.className='result-box info';res.textContent='...';
+  try{
+    var r=await fetch('/api/lint/fix',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});var d=await r.json();
     if(d.ok){res.className='result-box ok';res.innerHTML='<div class="md">'+marked.parse(d.result)+'</div>';await Promise.all([loadWiki(),loadFolders()]);renderStats();renderSidebar();}
     else{res.className='result-box err';res.textContent='Error: '+d.error;}
-  }catch(e){res.className='result-box err';res.textContent='Network error: '+e.message;}
+  }catch(e){res.className='result-box err';res.textContent=t('err_network')+e.message;}
 }
 
 // ─── Reflect ───
@@ -684,17 +842,16 @@ async function checkReflectStatus(){
 
 function showReflect(){
   setView('reflect');cur=null;
-  document.getElementById('bc').innerHTML='<b>Reflect</b> · 위키 메타 분석';
-  var h='<div class="panel"><h2>Reflect</h2>';
-  h+='<p class="desc">최근 ingest 보고서, 로그, 쿼리 기록을 분석하여 위키 개선을 제안합니다. 주 1회 권장.</p>';
-  h+='<div class="field"><label>Analysis Window</label><select id="reflectWindow">';
-  h+='<option value="last-10-ingests">최근 10회 ingest</option>';
-  h+='<option value="last-week">최근 1주</option>';
-  h+='<option value="all">전체</option>';
+  document.getElementById('bc').innerHTML='<b>'+t('reflect_title')+'</b>';
+  var h='<div class="panel"><h2>'+t('reflect_title')+'</h2>';
+  h+='<p class="desc">'+t('reflect_desc')+'</p>';
+  h+='<div class="field"><label>'+t('reflect_window')+'</label><select id="reflectWindow">';
+  h+='<option value="last-10-ingests">'+t('reflect_win_10')+'</option>';
+  h+='<option value="last-week">'+t('reflect_win_week')+'</option>';
+  h+='<option value="all">'+t('reflect_win_all')+'</option>';
   h+='</select></div>';
-  h+='<button class="btn btn-accent" id="reflectRunBtn" onclick="doReflect()">Run Reflect</button>';
-  h+='<div id="reflectResult"></div>';
-  h+='</div>';
+  h+='<button class="btn btn-accent" id="reflectRunBtn" onclick="doReflect()">'+t('reflect_btn')+'</button>';
+  h+='<div id="reflectResult"></div></div>';
   document.getElementById('content').innerHTML=h;
 }
 
@@ -742,6 +899,202 @@ function toggleReflectSection(hdr){
   var body=hdr.nextElementSibling;
   if(body.classList.contains('show')){body.classList.remove('show');arrow.classList.remove('open');}
   else{body.classList.add('show');arrow.classList.add('open');}
+}
+
+// ─── Writing Companion ───
+function showWrite(){
+  setView('write');cur=null;
+  document.getElementById('bc').innerHTML='<b>'+t('write_title')+'</b>';
+  var h='<div class="panel"><h2>'+t('write_title')+'</h2>';
+  h+='<p class="desc">'+t('write_desc')+'</p>';
+  h+='<div class="field"><label>'+t('write_topic')+'</label><input type="text" id="writeTopic" placeholder="'+t('write_topic_ph')+'"></div>';
+  h+='<div class="field"><label>'+t('write_length')+'</label><select id="writeLength">';
+  h+='<option value="short">'+t('write_short')+'</option>';
+  h+='<option value="medium" selected>'+t('write_medium')+'</option>';
+  h+='<option value="long">'+t('write_long')+'</option>';
+  h+='</select></div>';
+  h+='<div class="field"><label>'+t('write_style')+'</label><select id="writeStyle">';
+  h+='<option value="blog">'+t('write_style_blog')+'</option>';
+  h+='<option value="paper">'+t('write_style_paper')+'</option>';
+  h+='<option value="explainer">'+t('write_style_explainer')+'</option>';
+  h+='</select></div>';
+  h+='<button class="btn btn-accent" id="writeBtn" onclick="doWrite()">'+t('write_btn')+'</button>';
+  h+='<div id="writeResult"></div><div id="writeSave" style="display:none"></div></div>';
+  document.getElementById('content').innerHTML=h;
+}
+async function doWrite(){
+  var topic=document.getElementById('writeTopic').value.trim();
+  if(!topic){alert(t('err_title_required'));return;}
+  var length=document.getElementById('writeLength').value;
+  var style=document.getElementById('writeStyle').value;
+  var btn=document.getElementById('writeBtn'),res=document.getElementById('writeResult'),sv=document.getElementById('writeSave');
+  btn.disabled=true;btn.textContent=t('write_processing');res.className='result-box info';res.textContent=t('write_processing');sv.style.display='none';
+  try{
+    var r=await fetch('/api/write',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({topic:topic,length:length,style:style})});
+    var d=await r.json();
+    if(d.ok){
+      var draft=d.draft.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g,'[$2]($1.md)').replace(/\[\[([^\]]+)\]\]/g,'[$1]($1.md)');
+      res.className='result-box ok';res.innerHTML='<div class="md">'+marked.parse(draft)+'</div>';
+      res.querySelectorAll('.md a').forEach(function(a){var h=a.getAttribute('href');if(h&&h.endsWith('.md')&&h.indexOf('://')<0){a.onclick=function(e){e.preventDefault();showPage(h);};a.style.cursor='pointer';}});
+      sv.style.display='block';
+      sv.innerHTML='<div style="margin-top:12px;display:flex;gap:8px;align-items:center"><input type="text" id="writeSaveTitle" placeholder="'+t('query_save_placeholder')+'" style="flex:1;padding:6px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px"><button class="btn btn-outline" onclick="doWriteSave()">'+t('query_save_to_wiki')+'</button></div>';
+      window._lastDraft=d.draft;
+    }else{res.className='result-box err';res.textContent='Error: '+d.error;}
+  }catch(e){res.className='result-box err';res.textContent=t('err_network')+e.message;}
+  btn.disabled=false;btn.textContent=t('write_btn');
+}
+async function doWriteSave(){
+  var title=document.getElementById('writeSaveTitle').value.trim();
+  if(!title){alert(t('err_title_required'));return;}
+  try{
+    var r=await fetch('/api/query/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:title,content:window._lastDraft||''})});
+    var d=await r.json();
+    if(d.ok&&d.filename){await Promise.all([loadWiki(),loadFolders()]);renderStats();renderSidebar();showPage(d.filename);}
+    else alert(t('save_fail')+(d.error||''));
+  }catch(e){alert(t('err_network')+e.message);}
+}
+
+// ─── Page Comparison ───
+function showCompare(){
+  setView('compare');cur=null;
+  document.getElementById('bc').innerHTML='<b>'+t('compare_title')+'</b>';
+  var pages=(D?D.pages:[]).filter(function(p){return ['index.md','log.md'].indexOf(p.filename)<0;});
+  var opts=pages.map(function(p){return '<option value="'+esc(p.filename)+'">'+esc(p.title)+' ('+p.type+')</option>';}).join('');
+  var h='<div class="panel"><h2>'+t('compare_title')+'</h2>';
+  h+='<p class="desc">'+t('compare_desc')+'</p>';
+  h+='<div class="field"><label>'+t('compare_a')+'</label><select id="cmpA"><option value="">—</option>'+opts+'</select></div>';
+  h+='<div class="field"><label>'+t('compare_b')+'</label><select id="cmpB"><option value="">—</option>'+opts+'</select></div>';
+  h+='<div class="field"><label>'+t('query_save_to_wiki')+' ('+t('field_title')+', optional)</label><input type="text" id="cmpSaveAs" placeholder="e.g. RAG vs Persistent Wiki"></div>';
+  h+='<button class="btn btn-accent" id="cmpBtn" onclick="doCompare()">'+t('compare_btn')+'</button>';
+  h+='<div id="cmpResult"></div></div>';
+  document.getElementById('content').innerHTML=h;
+}
+async function doCompare(){
+  var a=document.getElementById('cmpA').value, b=document.getElementById('cmpB').value, save=document.getElementById('cmpSaveAs').value.trim();
+  if(!a||!b){alert('Select two pages');return;}
+  if(a===b){alert('Select two different pages');return;}
+  var btn=document.getElementById('cmpBtn'), res=document.getElementById('cmpResult');
+  btn.disabled=true;btn.textContent=t('compare_processing');res.className='result-box info';res.textContent=t('compare_processing');
+  try{
+    var r=await fetch('/api/compare',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({page_a:a,page_b:b,save_as:save})});
+    var d=await r.json();
+    if(d.ok){
+      var analysis=d.analysis.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g,'[$2]($1.md)').replace(/\[\[([^\]]+)\]\]/g,'[$1]($1.md)');
+      res.className='result-box ok';res.innerHTML='<div class="md">'+marked.parse(analysis)+'</div>';
+      res.querySelectorAll('.md a').forEach(function(a){var h=a.getAttribute('href');if(h&&h.endsWith('.md')&&h.indexOf('://')<0){a.onclick=function(e){e.preventDefault();showPage(h);};a.style.cursor='pointer';}});
+      if(d.saved){
+        await Promise.all([loadWiki(),loadFolders()]);renderStats();renderSidebar();
+        res.innerHTML+='<p style="margin-top:10px;color:var(--green)">'+t('save_success')+': '+esc(d.saved)+'</p>';
+      }
+    }else{res.className='result-box err';res.textContent='Error: '+d.error;}
+  }catch(e){res.className='result-box err';res.textContent=t('err_network')+e.message;}
+  btn.disabled=false;btn.textContent=t('compare_btn');
+}
+
+// ─── Spaced Review ───
+async function showReview(){
+  setView('review');cur=null;
+  document.getElementById('bc').innerHTML='<b>'+t('review_title')+'</b>';
+  document.getElementById('content').innerHTML='<div class="panel"><h2>'+t('review_title')+'</h2><p class="desc">'+t('review_desc')+'</p><div id="reviewList">...</div></div>';
+  try{
+    var r=await fetch('/api/review/list');var list=await r.json();
+    var h='';
+    if(!list.length){h='<p style="color:var(--muted);padding:20px 0">'+t('review_empty')+'</p>';}
+    else{
+      h='<table class="prov-table"><thead><tr><th>Page</th><th>Type</th><th>Last Updated</th><th>Stale</th><th></th></tr></thead><tbody>';
+      list.forEach(function(p){
+        h+='<tr>';
+        h+='<td><span class="prov-page" onclick="showPage(\''+p.filename+'\')">'+esc(p.title)+'</span></td>';
+        h+='<td>'+esc(p.type)+'</td>';
+        h+='<td class="hist-date">'+esc(p.last_updated)+'</td>';
+        h+='<td class="prov-low">'+p.days_stale+'d</td>';
+        h+='<td><button class="btn btn-outline" style="font-size:11px;padding:2px 8px" onclick="doReviewRefresh(\''+p.filename+'\')">'+t('review_refresh')+'</button></td>';
+        h+='</tr>';
+      });
+      h+='</tbody></table>';
+    }
+    document.getElementById('reviewList').innerHTML=h;
+  }catch(e){document.getElementById('reviewList').innerHTML='<p style="color:var(--red)">'+e.message+'</p>';}
+}
+async function doReviewRefresh(fn){
+  var btns=document.querySelectorAll('#reviewList button');btns.forEach(function(b){b.disabled=true;});
+  try{
+    var r=await fetch('/api/review/refresh',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({filename:fn})});
+    var d=await r.json();
+    if(d.ok){await Promise.all([loadWiki(),loadFolders()]);renderStats();showReview();}
+    else alert('Error: '+d.error);
+  }catch(e){alert(t('err_network')+e.message);}
+}
+
+// ─── Smart Search ───
+function showSearch(){
+  setView('search');cur=null;
+  document.getElementById('bc').innerHTML='<b>'+t('search_title')+'</b>';
+  var h='<div class="panel"><h2>'+t('search_title')+'</h2><p class="desc">'+t('search_desc')+'</p>';
+  h+='<div class="field"><input type="text" id="searchInput" placeholder="'+t('search_ph')+'" onkeydown="if(event.key===\'Enter\')doSearch()"></div>';
+  h+='<button class="btn btn-accent" onclick="doSearch()">'+t('search_btn')+'</button>';
+  h+='<div id="searchResults" style="margin-top:16px"></div></div>';
+  document.getElementById('content').innerHTML=h;
+  document.getElementById('searchInput').focus();
+}
+async function doSearch(){
+  var q=document.getElementById('searchInput').value.trim();
+  if(!q)return;
+  var res=document.getElementById('searchResults');res.innerHTML='Searching...';
+  try{
+    var r=await fetch('/api/search',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:q,top_k:15})});
+    var d=await r.json();
+    if(!d.results.length){res.innerHTML='<p style="color:var(--muted)">'+t('search_no_results')+'</p>';return;}
+    var h='';
+    d.results.forEach(function(it){
+      var p=(D&&D.pages)?D.pages.find(function(x){return x.filename===it.filename;}):null;
+      var title=p?p.title:it.filename;
+      h+='<div style="padding:10px 0;border-bottom:1px solid var(--border);cursor:pointer" onclick="showPage(\''+it.filename+'\')">';
+      h+='<div style="font-size:14px;color:var(--accent)">'+esc(title)+'</div>';
+      h+='<div style="font-size:11px;color:var(--muted);font-family:var(--mono)">'+esc(it.filename)+' · score: '+it.score+'</div>';
+      h+='<div style="font-size:12px;color:var(--muted);margin-top:4px">'+esc(it.snippet)+'</div>';
+      h+='</div>';
+    });
+    res.innerHTML=h;
+  }catch(e){res.innerHTML='<p style="color:var(--red)">'+e.message+'</p>';}
+}
+
+// ─── Related Sources Suggestion (inline에 통합) ───
+async function doSuggestSources(){
+  var res=document.getElementById('suggestResult');
+  if(!res)return;
+  res.className='result-box info';res.textContent='Claude가 제안 생성 중...';
+  try{
+    var r=await fetch('/api/suggest/sources',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+    var d=await r.json();
+    if(d.ok){
+      if(!d.suggestions.length){res.className='result-box ok';res.textContent='제안 없음. 위키가 잘 정리되어 있습니다.';return;}
+      var h='<table class="prov-table"><thead><tr><th>Suggestion</th><th>Why</th><th>Expected Pages</th></tr></thead><tbody>';
+      d.suggestions.forEach(function(s){
+        h+='<tr><td><b>'+esc(s.suggestion)+'</b></td><td>'+esc(s.why)+'</td><td style="font-size:11px;color:var(--muted)">'+esc(s.expected_pages)+'</td></tr>';
+      });
+      h+='</tbody></table>';
+      res.className='';res.innerHTML=h;
+    }else{res.className='result-box err';res.textContent='Error: '+d.error;}
+  }catch(e){res.className='result-box err';res.textContent=t('err_network')+e.message;}
+}
+
+// Marp Slide Export — 페이지 뷰에 버튼 추가
+async function doSlideExport(fn){
+  var btn=event.target; btn.disabled=true; btn.textContent='Generating...';
+  try{
+    var r=await fetch('/api/slides',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({page:fn})});
+    var d=await r.json();
+    if(d.ok){
+      // 다운로드
+      var blob=new Blob([d.marp],{type:'text/markdown'});
+      var url=URL.createObjectURL(blob);
+      var a=document.createElement('a');
+      a.href=url;a.download=fn.replace('.md','')+'-slides.md';a.click();
+      URL.revokeObjectURL(url);
+    }else alert('Error: '+d.error);
+  }catch(e){alert(t('err_network')+e.message);}
+  btn.disabled=false;btn.textContent='Slides';
 }
 
 // ─── Provenance ───
@@ -943,65 +1296,138 @@ async function saveSchema(){
 }
 
 // ─── Guide ───
-function showGuide(){
-  setView('guide');cur=null;document.getElementById('bc').innerHTML='<b>Guide</b> · LLM Wiki 사용법';
-  var lines=[
-    '# LLM Wiki 사용법','',
-    '이 대시보드는 **Obsidian + Claude Code CLI**로 운영하는 개인 지식 베이스의 컨트롤 패널입니다.','',
-    '원본 아이디어: [Karpathy의 LLM Wiki 패턴](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f)','',
+function buildGuide(lang){
+  var BT=String.fromCharCode(96);
+  var FENCE=BT+BT+BT;
+  if(lang==='ko'){
+    return [
+      '# Karpathy LLM 대시보드 — 가이드','',
+      'Claude가 구축·유지하는 개인 지식 베이스와 이를 제어하는 웹 대시보드. [Karpathy의 LLM Wiki 패턴](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) 기반.','',
+      '---','',
+      '## 상태 표시줄 (좌측 하단)','',
+      '| 표시 | 의미 |',
+      '|------|------|',
+      '| 🟢 **Claude CLI** | claude 명령이 설치·인증됨 |',
+      '| 🔴 **Claude CLI** | 터미널에서 '+BT+'claude'+BT+' 실행 확인 필요 |',
+      '| 🟢 **Obsidian** | process=on, vault_open=true |',
+      '| 🔴 **Obsidian** | 프로세스 off 또는 vault가 닫혀있음 |','',
+      '---','',
+      '## 주요 기능','',
+      '### + 수집 (Ingest)','소스 문서를 위키에 통합.',
+      '1. 상단 **+ 수집** 클릭',
+      '2. 제목 + 내용(Markdown) 붙여넣기',
+      '3. **Claude로 수집** → '+BT+'raw/'+BT+'에 저장 + 위키 페이지 자동 생성',
+      '4. diff 확인 후 승인/되돌리기','',
+      '### 질문 (Query)','축적된 위키에 질문.',
+      '1. **질문** 클릭 → 질문 입력 → **Claude에게 질문**',
+      '2. Claude가 위키 검색 + citation 포함 답변 합성',
+      '3. 좋은 답변은 위키에 저장',
+      '4. 헤더의 **Wiki Ratio**는 위키가 raw를 얼마나 대체하는지 측정','',
+      '### 검진 (Lint)','16개 항목 건강 검진. Critical/Warning/Info 보고.','',
+      '### 성찰 (Reflect)','주간 메타 분석. 새 페이지 / 스키마 개선 / 부족한 소스 제안.','',
+      '### 작성 (Writing Companion)','위키 지식으로 에세이 초안 작성, [^src-*] 인용 자동 삽입.',
+      '주제, 분량(짧게/보통/길게), 스타일(블로그/학술/해설) 선택 후 저장 가능.','',
+      '### 비교 (Compare)','두 페이지 선택 → 공통점/차이점/시사점 → comparison 페이지로 저장.','',
+      '### 복습 (Spaced Review)','30일 이상 갱신되지 않은 active 페이지 리스트. Claude로 일괄 갱신.','',
+      '### 검색 (Smart Search)','위키 전체에 TF-IDF 전문 검색. 점수 랭킹 + 스니펫.','',
+      '### 그래프 (Graph)','Force-directed 지식 그래프. 드래그/클릭.','',
+      '### 이력 (History)','git 기반 수집 이력. 원클릭 되돌리기.','',
+      '### 출처 (Provenance)','페이지별 citation 커버리지. 수정 버튼으로 보완.','',
+      '### + 폴더 / + 페이지','수동 위키 구조 생성.','',
+      '### 편집 / 삭제 / Slides (페이지별)',
+      '- 편집: 인라인 마크다운 에디터',
+      '- Slides: Marp 슬라이드 덱 다운로드',
+      '- 삭제: 시스템 외 페이지','',
+      '---','',
+      '## 페이지 타입','',
+      '| 타입 | 색상 | 용도 |',
+      '|------|------|------|',
+      '| **source** | 🟢 | 원본 문서 요약 (수집 시 자동 생성) |',
+      '| **entity** | 🔵 | 사람, 조직, 제품, 장소 |',
+      '| **concept** | 🟣 | 아이디어, 프레임워크 |',
+      '| **technique** | 🟣 | 구체적 기법, 알고리즘 |',
+      '| **comparison** | 🟡 | 비교 분석 |',
+      '| **analysis** | 🩵 | 종합 분석 |',
+      '| **overview** | ⚪ | 위키/카테고리 개요 |','',
+      '---','',
+      '## CLI 사용','',
+      FENCE+'bash',
+      'claude                            # Claude Code 시작',
+      'Ingest raw/some-article.md',
+      'Self-Attention이 뭐야?',
+      'Lint the wiki',
+      FENCE,'',
+      '---','',
+      '## 언어','',
+      '헤더 우측의 **EN / 한국어** 토글로 전환. localStorage에 저장됩니다.',
+    ].join('\n');
+  }
+  return [
+    '# Karpathy LLM Dashboard — Guide','',
+    "A personal knowledge base built and maintained by Claude. Based on [Karpathy's LLM Wiki pattern](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f).",'',
     '---','',
-    '## 연결 상태 (좌측 하단)','',
-    '| 표시 | 의미 |','|------|------|',
-    '| 🟢 **Claude CLI** | claude 명령이 설치·인증됨 |',
-    '| 🔴 **Claude CLI** | 터미널에서 claude 실행 확인 필요 |',
-    '| 🟢 **Obsidian** | Obsidian 앱 실행 중 |',
-    '| 🔴 **Obsidian** | Obsidian을 열어주세요 |','','---','',
-    '## 주요 기능','',
-    '### + Ingest','문서를 위키에 통합합니다.',
-    '1. 상단 **+ Ingest** 클릭',
-    '2. Title, Content 입력 (Markdown 붙여넣기)',
-    '3. **Ingest with Claude** → 자동으로 raw/ 저장 + 위키 페이지 생성','',
-    '### Query','위키에 질문합니다.',
-    '1. 상단 **Query** 클릭',
-    '2. 질문 입력 → **Ask Claude**',
-    '3. 답변이 유용하면 **위키에 저장** 가능','',
-    '### Lint','위키 건강을 검진합니다.',
-    '1. 상단 **Lint** 클릭 → **Run Lint**',
-    '2. 모순, 고아 페이지, 누락 링크 등 보고',
-    '3. **자동 수정 적용** 으로 일괄 수정 가능','',
-    '### Graph','위키 지식 그래프를 시각화합니다. 노드 클릭으로 페이지 이동.','',
-    '### Edit / Delete','각 페이지 우측 상단 **Edit** / **Delete** 버튼으로 직접 편집·삭제.','',
-    '### + Folder / + Page','목적별 폴더 생성, 빈 페이지 생성.','','---','',
-    '## 페이지 타입','',
-    '| 타입 | 색상 | 용도 |','|------|------|------|',
-    '| **source** | 🟢 | 원본 문서 요약 (Ingest 시 자동 생성) |',
-    '| **entity** | 🔵 | 사람, 조직, 제품, 장소 |',
-    '| **concept** | 🟣 | 아이디어, 기술, 프레임워크 |',
-    '| **comparison** | 🟡 | 비교 분석 |',
-    '| **analysis** | 🩵 | 심층 분석 (Query 결과 저장 등) |',
-    '| **overview** | ⚪ | 위키/카테고리 개요 |','','---','',
-    '## 자동 갱신','',
-    '대시보드는 5초마다 위키 변경을 감지하여 자동 갱신합니다.','CLI나 Obsidian에서 직접 수정해도 대시보드에 반영됩니다.','','---','',
-    '## Obsidian 연동','',
-    '이 프로젝트 폴더가 Obsidian vault로 등록되어 있습니다.',
-    '- **Graph View** (Cmd+G) — 위키 연결 구조',
-    '- **Backlinks** — 현재 페이지를 참조하는 모든 페이지',
-    '- **Cmd+Shift+D** — 클리핑 기사 이미지 로컬 다운로드','','---','',
-    '## 서버','',
-    'python dashboard/server.py → http://localhost:8090','',
-    '| API | 기능 |','|-----|------|',
-    '| GET /api/status | Claude CLI, Obsidian 연결 상태 |',
-    '| GET /api/wiki | 위키 데이터 (페이지, 그래프, 로그) |',
-    '| GET /api/hash | 위키 변경 감지용 해시 |',
-    '| POST /api/ingest | Ingest 실행 |',
-    '| POST /api/query | Query 실행 |',
-    '| POST /api/query/save | Query 답변을 위키에 저장 |',
-    '| POST /api/lint | Lint 실행 |',
-    '| POST /api/lint/fix | Lint 자동 수정 |',
-    '| POST /api/page/update | 페이지 편집 |',
-    '| POST /api/page/delete | 페이지 삭제 |',
-  ];
-  var md=lines.join('\n');
+    '## Status Bar (bottom-left)','',
+    '| Indicator | Meaning |',
+    '|-----------|---------|',
+    '| 🟢 **Claude CLI** | claude command is installed |',
+    '| 🔴 **Claude CLI** | run '+BT+'claude'+BT+' in terminal to check |',
+    '| 🟢 **Obsidian** | process=on and vault_open=true |',
+    '| 🔴 **Obsidian** | process=off or vault is closed |','',
+    '---','',
+    '## Main Operations','',
+    '### + Ingest','Integrate a source into the wiki.',
+    '1. Click **+ Ingest**',
+    '2. Paste Title + Content (markdown)',
+    '3. **Ingest with Claude** → '+BT+'raw/'+BT+' + auto-generated wiki pages',
+    '4. Review diff, approve or revert','',
+    '### Query','Ask questions against the wiki.',
+    '1. Enter question → **Ask Claude**',
+    '2. Wiki search + synthesis with citations',
+    '3. Save good answers to wiki',
+    '4. Check **Wiki Ratio** in header','',
+    '### Lint','16-point health check. Critical/Warning/Info report.','',
+    '### Reflect','Weekly meta-analysis. Suggests new pages, schema updates, missing sources.','',
+    '### Write','Draft essays using wiki with automatic [^src-*] citations.',
+    'Topic, length (short/medium/long), style (blog/paper/explainer).','',
+    '### Compare','Select Page A + B → similarities/differences → save as comparison.','',
+    '### Review','Active pages not updated for 30+ days. Refresh with Claude.','',
+    '### Search','TF-IDF full-text search. Score-ranked results with snippets.','',
+    '### Graph','Force-directed knowledge graph.','',
+    '### History','Git-backed ingest history with one-click revert.','',
+    '### Provenance','Citation coverage per page with auto-fix.','',
+    '### + Folder / + Page','Manual structure creation.','',
+    '### Edit / Delete / Slides (per-page)',
+    '- Edit: inline markdown editor',
+    '- Slides: download Marp slide deck',
+    '- Delete: non-system pages','',
+    '---','',
+    '## Page Types','',
+    '| Type | Color | Use |',
+    '|------|-------|-----|',
+    '| **source** | 🟢 | Single source summary |',
+    '| **entity** | 🔵 | Person, organization, product, place |',
+    '| **concept** | 🟣 | Idea, framework |',
+    '| **technique** | 🟣 | Specific method, algorithm |',
+    '| **comparison** | 🟡 | Side-by-side analysis |',
+    '| **analysis** | 🩵 | Multi-source synthesis |',
+    '| **overview** | ⚪ | Wiki or category summary |','',
+    '---','',
+    '## CLI Usage','',
+    FENCE+'bash',
+    'claude                            # Start Claude Code',
+    'Ingest raw/some-article.md',
+    'What is Self-Attention?',
+    'Lint the wiki',
+    FENCE,'',
+    '---','',
+    '## Language','',
+    'Use the **EN / 한국어** toggle in the top-right. Stored in localStorage.',
+  ].join('\n');
+}
+
+function showGuide(){
+  setView('guide');cur=null;document.getElementById('bc').innerHTML='<b>'+t('guide_title')+'</b>';
+  var md=buildGuide(LANG);
   document.getElementById('content').innerHTML='<div class="page"><div class="md">'+marked.parse(md)+'</div></div>';
 }
 
@@ -1013,16 +1439,40 @@ function updateFolderSelects(){
   const opts='<option value="">wiki/ (root)</option>'+(folders?folders.children.map(c=>`<option value="${c.name}">${c.name}/</option>`).join(''):'');
   ['newFolderParent','newPageFolder'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML=opts;});
 }
-async function doCreateFolder(){const n=document.getElementById('newFolderName').value.trim(),p=document.getElementById('newFolderParent').value;if(!n){alert('Folder name required');return;}
-  await fetch('/api/folder',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n,parent:p})});await loadFolders();renderSidebar();closeModals();document.getElementById('newFolderName').value='';}
-async function doCreatePage(){const t=document.getElementById('newPageTitle').value.trim(),tp=document.getElementById('newPageType').value,f=document.getElementById('newPageFolder').value;if(!t){alert('Title required');return;}
-  const r=await fetch('/api/page',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:t,type:tp,folder:f})});const d=await r.json();
-  await Promise.all([loadWiki(),loadFolders()]);renderStats();renderSidebar();closeModals();document.getElementById('newPageTitle').value='';if(d.filename)showPage(d.filename);}
+async function doCreateFolder(){
+  var n=document.getElementById('newFolderName').value.trim(),p=document.getElementById('newFolderParent').value;
+  if(!n){alert(t('folder_name'));return;}
+  await fetch('/api/folder',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n,parent:p})});
+  await loadFolders();renderSidebar();closeModals();document.getElementById('newFolderName').value='';
+}
+async function doCreatePage(){
+  var ttl=document.getElementById('newPageTitle').value.trim(),tp=document.getElementById('newPageType').value,f=document.getElementById('newPageFolder').value;
+  if(!ttl){alert(t('err_title_required'));return;}
+  var r=await fetch('/api/page',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:ttl,type:tp,folder:f})});
+  var d=await r.json();
+  await Promise.all([loadWiki(),loadFolders()]);renderStats();renderSidebar();closeModals();document.getElementById('newPageTitle').value='';
+  if(d.filename)showPage(d.filename);
+}
 
 // ─── Events ───
 document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{tab=b.dataset.t;document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b));renderSidebar();});
 document.querySelectorAll('.toolbar button[data-v]').forEach(b=>b.onclick=()=>{
-  const v=b.dataset.v;if(v==='graph')showGraph();else if(v==='ingest')showIngest();else if(v==='query')showQuery();else if(v==='lint')showLint();else if(v==='reflect')showReflect();else if(v==='history')showHistory();else if(v==='provenance')showProvenance();else if(v==='schema')showSchema();else if(v==='guide')showGuide();else if(cur)showPage(cur);});
+  const v=b.dataset.v;
+  if(v==='graph')showGraph();
+  else if(v==='ingest')showIngest();
+  else if(v==='query')showQuery();
+  else if(v==='lint')showLint();
+  else if(v==='reflect')showReflect();
+  else if(v==='write')showWrite();
+  else if(v==='compare')showCompare();
+  else if(v==='review')showReview();
+  else if(v==='search')showSearch();
+  else if(v==='history')showHistory();
+  else if(v==='provenance')showProvenance();
+  else if(v==='schema')showSchema();
+  else if(v==='guide')showGuide();
+  else if(cur)showPage(cur);
+});
 document.getElementById('q').oninput=e=>{sq=e.target.value;if(tab!=='pages'){tab='pages';document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x.dataset.t==='pages'));}renderSidebar();};
 document.querySelectorAll('.modal-bg').forEach(m=>m.onclick=e=>{if(e.target===m)closeModals();});
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModals();});
