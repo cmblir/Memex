@@ -25,6 +25,7 @@ tags:
 
 - BERT, GPT 시리즈 등 현대 LLM의 기반
 - Vision Transformer(ViT)로 컴퓨터 비전까지 확장
+- [[dit|DiT (Diffusion Transformer)]]로 [[diffusion-model|Diffusion Model]] 영역까지 확장
 - [[andrej-karpathy|Andrej Karpathy]]가 minGPT, nanoGPT로 교육용 구현 공개
 
 WMT 2014 번역 태스크에서 RNN 기반 모델 없이 SOTA를 달성하며 패러다임 전환을 이끌었다.
