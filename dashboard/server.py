@@ -423,26 +423,63 @@ def do_fix_citations(page_filename):
 
 
 def do_lint():
-    prompt = """CLAUDE.md의 Lint 지침대로 wiki 전체를 점검해.
+    today = datetime.now().strftime("%Y-%m-%d")
+    prompt = f"""CLAUDE.md의 "Lint 체크리스트" 섹션을 읽고 wiki 전체를 점검해.
+
+아래 체크리스트를 **모두** 수행:
+
+### 구조 검사
+- frontmatter 없거나 type 필드가 허용 값이 아닌 페이지
+- status: superseded인데 superseded_by 없는 페이지
+- status: disputed인데 ## Disputed 섹션 없는 페이지
+- superseded_by가 가리키는 페이지가 존재하지 않음
+
+### Citation 검사
+- inline citation [^src-*] 없는 사실적 claim 문장
+- 페이지별 citation 비율 (claim 수 대비 cited 수)
+- [^src-*] 참조인데 하단에 정의 없음
+- 정의된 source-summary 페이지가 wiki/에 없음
+- source_count가 실제 citation 수와 불일치
+
+### 연결 검사
+- orphan 페이지 (다른 페이지에서 [[wikilink]] 0개)
+- 본문에서 언급되었지만 자체 페이지가 없는 컨셉/엔티티
+- 관련 페이지인데 상호 링크 없음
+
+### 신선도 검사
+- last_updated가 30일 이상 지난 active 페이지 (오늘: {today})
+- source_count: 1인데 일반화 주장하는 페이지
+- confidence: high인데 source_count < 2인 페이지
+
 보고 형식:
-1. 모순 (있으면)
-2. 갱신 필요한 오래된 주장 (있으면)
-3. 고아 페이지 (인바운드 링크 없는 페이지)
-4. 누락된 컨셉 페이지 (언급되었지만 자체 페이지 없음)
-5. 빠진 교차참조
-6. 데이터 갭 / 추천 소스
-각 항목마다 수정 제안을 포함해."""
+## Lint Report — {today}
+### Critical (must fix)
+- [ ] page.md — 문제 설명
+### Warning (should fix)
+- [ ] page.md — 문제 설명
+### Info (nice to have)
+- [ ] page.md — 문제 설명
+
+각 항목에 수정 제안을 포함해."""
     ok, out, err = run_claude(prompt)
     return {"ok": ok, "report": out, "error": err}
 
 
 def do_lint_fix():
-    prompt = """방금 Lint 점검을 했다. 발견된 모든 문제를 지금 수정해:
+    prompt = """방금 CLAUDE.md의 Lint 체크리스트로 점검을 했다. 발견된 모든 문제를 지금 수정해:
+
+- frontmatter 누락/불일치 → 올바른 frontmatter 추가/수정
+- inline citation 없는 claim → 적절한 [^src-*] 추가 (소스가 존재하는 경우에만)
+- source_count 불일치 → 실제 citation 수로 갱신
+- last_updated 갱신 → 오늘 날짜로
+- orphan 페이지 → 관련 페이지에서 [[wikilink]] 추가
 - 누락된 교차참조 추가
-- 고아 페이지에 인바운드 링크 추가
-- 언급되었지만 페이지 없는 컨셉은 stub 페이지 생성
+- 언급되었지만 페이지 없는 컨셉은 stub 페이지 생성 (최소 1개 citation 포함)
+- status/superseded_by 불일치 수정
+- disputed 페이지에 ## Disputed 섹션 추가
 - index.md, log.md, overview.md 갱신
-수정한 내용을 요약해서 보고해."""
+
+수정한 내용을 Critical/Warning/Info 별로 요약해서 보고해."""
     ok, out, err = run_claude(prompt)
     if ok:
         git_mgr.commit_lint_fix()
