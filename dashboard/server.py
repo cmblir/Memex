@@ -428,57 +428,54 @@ def wiki_hash():
 
 # ─── status ───
 
-def _check_obsidian_vault():
-    """이 프로젝트가 실제로 Obsidian에 vault로 열려있는지 확인.
+def _read_obsidian_facts():
+    """Obsidian으로부터 사실(fact)만 읽어서 반환. 판단/라벨 없음.
 
-    3단계 체크:
-      1. Obsidian 프로세스 실행 중
-      2. Obsidian config에 이 경로가 vault로 등록됨
-      3. 해당 vault의 open 플래그가 true
+    Returns:
+        process_running: bool (pgrep Obsidian 결과)
+        config_path: str | None (발견된 Obsidian config 파일 경로)
+        vault_registered: bool (이 프로젝트가 vault로 등록됨)
+        vault_open: bool | None (등록된 vault의 open 플래그. 등록 안됐으면 None)
+        vault_last_ts: int | None (마지막 접근 timestamp in ms)
     """
-    # 1. 프로세스 확인 (macOS/Linux)
+    facts = {
+        "process_running": False,
+        "config_path": None,
+        "vault_registered": False,
+        "vault_open": None,
+        "vault_last_ts": None,
+    }
+
+    # 프로세스
     try:
         r = subprocess.run(["pgrep", "-x", "Obsidian"], capture_output=True, timeout=3)
-        process_running = r.returncode == 0
+        facts["process_running"] = r.returncode == 0
     except Exception:
-        process_running = False
+        pass
 
-    if not process_running:
-        return {"connected": False, "message": "not running"}
-
-    # 2. Obsidian config 경로 (OS별)
+    # config 찾기
     home = Path.home()
-    candidates = [
-        home / "Library/Application Support/obsidian/obsidian.json",  # macOS
-        home / ".config/obsidian/obsidian.json",                       # Linux
-        home / "AppData/Roaming/obsidian/obsidian.json",               # Windows
-    ]
-    config_path = next((p for p in candidates if p.exists()), None)
-    if config_path is None:
-        # config 파일 없으면 프로세스만으로 판단 — 보수적으로 "unknown"
-        return {"connected": False, "message": "Obsidian config not found"}
-
-    # 3. 이 프로젝트가 등록·열려있는지
-    try:
-        cfg = json.loads(config_path.read_text("utf-8"))
-    except Exception as e:
-        return {"connected": False, "message": f"config parse error: {e}"}
-
-    vaults = cfg.get("vaults", {}) or {}
-    project_resolved = PROJECT_ROOT.resolve()
-    for vid, info in vaults.items():
-        vault_path = info.get("path", "")
-        if not vault_path:
-            continue
-        try:
-            if Path(vault_path).resolve() == project_resolved:
-                if info.get("open"):
-                    return {"connected": True, "message": "vault open"}
-                else:
-                    return {"connected": False, "message": "vault registered but closed"}
-        except Exception:
-            continue
-    return {"connected": False, "message": "vault not registered"}
+    for p in [
+        home / "Library/Application Support/obsidian/obsidian.json",
+        home / ".config/obsidian/obsidian.json",
+        home / "AppData/Roaming/obsidian/obsidian.json",
+    ]:
+        if p.exists():
+            facts["config_path"] = str(p)
+            try:
+                cfg = json.loads(p.read_text("utf-8"))
+                project_resolved = PROJECT_ROOT.resolve()
+                for vid, info in (cfg.get("vaults") or {}).items():
+                    vpath = info.get("path", "")
+                    if vpath and Path(vpath).resolve() == project_resolved:
+                        facts["vault_registered"] = True
+                        facts["vault_open"] = bool(info.get("open", False))
+                        facts["vault_last_ts"] = info.get("ts")
+                        break
+            except Exception:
+                pass
+            break
+    return facts
 
 
 def check_status():
@@ -490,10 +487,9 @@ def check_status():
             claude_ver = r.stdout.strip().split("\n")[0]
     except Exception:
         pass
-    obsidian = _check_obsidian_vault()
     return {
         "claude": {"connected": claude_ok, "version": claude_ver},
-        "obsidian": obsidian,
+        "obsidian": _read_obsidian_facts(),
     }
 
 
