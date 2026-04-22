@@ -7,23 +7,24 @@ tags:
   - meta
 ---
 
-# Wiki Index (hierarchical)
+# Wiki Index
 
-> [!info] This wiki uses hierarchical indexing.
-> Each type has its own sub-index page for faster navigation.
+All wiki pages, organized by type. Updated on every ingest.
 
 ## Overview
 - [[overview]] — wiki scope and current state
-## Sources (0)
-See [[index-sources|full list]]
-## Entities (18)
-See [[index-entities|full list]]
-## Concepts (18)
-See [[index-concepts|full list]]
-## Techniques (12)
-See [[index-techniques|full list]]
-## Analyses (12)
-See [[index-analyses|full list]]
-## Source (2)
+## Entities
+- [[andrej-karpathy|Andrej Karpathy]]
+- [[ashish-vaswani|Ashish Vaswani]]
+- [[google-brain|Google Brain]]
+- [[obsidian|Obsidian]]
+- [[qmd|qmd]]
+## Concepts
+- [[multi-head-attention|Multi-Head Attention]]
+- [[persistent-wiki-pattern|Persistent Wiki Pattern]]
+- [[rag|RAG (Retrieval-Augmented Generation)]]
+- [[self-attention|Self-Attention]]
+- [[transformer|Transformer]]
+## Source
 - [[source-attention-is-all-you-need|Attention Is All You Need — 소스 요약]]
 - [[source-karpathy-llm-wiki|Karpathy: LLM Wiki]]
