@@ -18,6 +18,20 @@ PROJECT_ROOT = SCRIPT_DIR.parent
 WIKI_DIR = PROJECT_ROOT / "wiki"
 RAW_DIR = PROJECT_ROOT / "raw"
 
+# subprocess가 claude CLI를 찾을 수 있도록 PATH 보장
+_claude = shutil.which("claude")
+if not _claude:
+    # nvm, homebrew 등 일반적인 경로 추가
+    for p in [os.path.expanduser("~/.nvm/versions/node"), "/usr/local/bin", "/opt/homebrew/bin"]:
+        if os.path.isdir(p):
+            for root, dirs, files in os.walk(p):
+                if "claude" in files:
+                    os.environ["PATH"] = root + ":" + os.environ.get("PATH", "")
+                    _claude = os.path.join(root, "claude")
+                    break
+            if _claude:
+                break
+
 CLAUDE_TOOLS = "Edit,Write,Read,Glob,Grep"
 CLAUDE_TIMEOUT = 180
 
@@ -295,6 +309,10 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(get_folder_tree())
         if path == "/api/hash":
             return self._json({"hash": wiki_hash()})
+        if path == "/api/schema":
+            schema_path = PROJECT_ROOT / "CLAUDE.md"
+            content = schema_path.read_text("utf-8") if schema_path.exists() else ""
+            return self._json({"ok": True, "content": content})
         super().do_GET()
 
     def do_POST(self):
@@ -320,6 +338,10 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(update_page(body.get("filename", ""), body.get("content", "")))
         if path == "/api/page/delete":
             return self._json(delete_page(body.get("filename", "")))
+        if path == "/api/schema":
+            schema_path = PROJECT_ROOT / "CLAUDE.md"
+            schema_path.write_text(body.get("content", ""), encoding="utf-8")
+            return self._json({"ok": True})
         self.send_error(404)
 
     def _read_body(self):
@@ -351,8 +373,16 @@ class Handler(SimpleHTTPRequestHandler):
         print(f"[{ts}] {args[0]}" if args else "")
 
 
+import socket
+
+class DualStackHTTPServer(HTTPServer):
+    address_family = socket.AF_INET6
+    def server_bind(self):
+        self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+        super().server_bind()
+
 if __name__ == "__main__":
     print(f"LLM Wiki Dashboard → http://localhost:{PORT}")
     print(f"Project: {PROJECT_ROOT}")
     print(f"Wiki:    {WIKI_DIR} ({sum(1 for _ in WIKI_DIR.rglob('*.md'))} pages)")
-    HTTPServer(("", PORT), Handler).serve_forever()
+    DualStackHTTPServer(("::", PORT), Handler).serve_forever()

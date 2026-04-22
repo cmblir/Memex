@@ -145,6 +145,7 @@ main{display:flex;flex-direction:column;overflow:hidden}
       <button onclick="showCreateFolder()">+ Folder</button>
       <button onclick="showCreatePage()">+ Page</button>
       <div class="sep"></div>
+      <button data-v="schema" style="border-color:var(--orange);color:var(--orange)">CLAUDE.md</button>
       <button data-v="guide" style="border-color:var(--purple);color:var(--purple)">? Guide</button>
       <span class="bc" id="bc"></span>
     </div>
@@ -401,106 +402,124 @@ function showGraph(){
   tick();
 }
 
+// ─── Schema (CLAUDE.md) ───
+async function showSchema(){
+  setView('schema');cur=null;
+  document.getElementById('bc').innerHTML='<b>CLAUDE.md</b> · LLM 에이전트 스키마';
+  document.getElementById('content').innerHTML='<div class="panel"><h2>CLAUDE.md</h2><p class="desc">Loading...</p></div>';
+  try{
+    const r=await fetch('/api/schema');const d=await r.json();
+    var h='<div class="panel">';
+    h+='<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">';
+    h+='<h2 style="margin:0">CLAUDE.md</h2>';
+    h+='<button class="btn btn-outline" id="schemaToggle" onclick="toggleSchemaEdit()">Edit</button>';
+    h+='</div>';
+    h+='<p class="desc">이 파일이 Claude에게 위키 운영 방법을 알려주는 스키마입니다. 수정하면 다음 Ingest/Query/Lint부터 적용됩니다.</p>';
+    h+='<div id="schemaView"><div class="md">'+marked.parse(d.content||'(empty)')+'</div></div>';
+    h+='<div id="schemaEdit" style="display:none">';
+    h+='<textarea class="edit-area" id="schemaArea" style="min-height:500px">'+esc(d.content||'')+'</textarea>';
+    h+='<div class="edit-actions">';
+    h+='<button class="btn btn-green" onclick="saveSchema()">Save</button>';
+    h+='<button class="btn btn-outline" onclick="toggleSchemaEdit()">Cancel</button>';
+    h+='</div></div></div>';
+    document.getElementById('content').innerHTML=h;
+    window._schemaOriginal=d.content||'';
+  }catch(e){
+    document.getElementById('content').innerHTML='<div class="panel"><p class="desc" style="color:var(--red)">Error loading CLAUDE.md: '+e.message+'</p></div>';
+  }
+}
+function toggleSchemaEdit(){
+  var v=document.getElementById('schemaView');
+  var e=document.getElementById('schemaEdit');
+  var btn=document.getElementById('schemaToggle');
+  if(e.style.display==='none'){
+    e.style.display='block';v.style.display='none';btn.textContent='Preview';
+    editing=true;
+  }else{
+    e.style.display='none';v.style.display='block';btn.textContent='Edit';
+    // re-render preview from textarea
+    var txt=document.getElementById('schemaArea').value;
+    document.getElementById('schemaView').innerHTML='<div class="md">'+marked.parse(txt||'(empty)')+'</div>';
+    editing=false;
+  }
+}
+async function saveSchema(){
+  var content=document.getElementById('schemaArea').value;
+  try{
+    const r=await fetch('/api/schema',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:content})});
+    const d=await r.json();
+    if(d.ok){
+      document.getElementById('schemaView').innerHTML='<div class="md">'+marked.parse(content||'(empty)')+'</div>';
+      document.getElementById('schemaEdit').style.display='none';
+      document.getElementById('schemaView').style.display='block';
+      document.getElementById('schemaToggle').textContent='Edit';
+      editing=false;
+      window._schemaOriginal=content;
+    }
+  }catch(e){alert('Error: '+e.message);}
+}
+
 // ─── Guide ───
 function showGuide(){
   setView('guide');cur=null;document.getElementById('bc').innerHTML='<b>Guide</b> · LLM Wiki 사용법';
-  const md=`# LLM Wiki 사용법
-
-이 대시보드는 **Obsidian + Claude Code CLI**로 운영하는 개인 지식 베이스의 컨트롤 패널입니다.
-
-원본 아이디어: [Karpathy의 LLM Wiki 패턴](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f)
-
----
-
-## 연결 상태 (좌측 하단)
-
-| 표시 | 의미 |
-|------|------|
-| 🟢 **Claude CLI** | claude 명령이 설치·인증됨 |
-| 🔴 **Claude CLI** | 터미널에서 claude 실행 확인 필요 |
-| 🟢 **Obsidian** | Obsidian 앱 실행 중 |
-| 🔴 **Obsidian** | Obsidian을 열어주세요 |
-
----
-
-## 주요 기능
-
-### + Ingest
-문서를 위키에 통합합니다.
-1. 상단 **+ Ingest** 클릭
-2. Title, Content 입력 (Markdown 붙여넣기)
-3. **Ingest with Claude** → 자동으로 raw/ 저장 + 위키 페이지 생성
-
-### Query
-위키에 질문합니다.
-1. 상단 **Query** 클릭
-2. 질문 입력 → **Ask Claude**
-3. 답변이 유용하면 **위키에 저장** 가능
-
-### Lint
-위키 건강을 검진합니다.
-1. 상단 **Lint** 클릭 → **Run Lint**
-2. 모순, 고아 페이지, 누락 링크 등 보고
-3. **자동 수정 적용** 으로 일괄 수정 가능
-
-### Graph
-위키 지식 그래프를 시각화합니다. 노드 클릭으로 페이지 이동.
-
-### Edit / Delete
-각 페이지 우측 상단 **Edit** / **Delete** 버튼으로 직접 편집·삭제.
-
-### + Folder / + Page
-목적별 폴더 생성, 빈 페이지 생성.
-
----
-
-## 페이지 타입
-
-| 타입 | 색상 | 용도 |
-|------|------|------|
-| **source** | 🟢 | 원본 문서 요약 (Ingest 시 자동 생성) |
-| **entity** | 🔵 | 사람, 조직, 제품, 장소 |
-| **concept** | 🟣 | 아이디어, 기술, 프레임워크 |
-| **comparison** | 🟡 | 비교 분석 |
-| **analysis** | 🩵 | 심층 분석 (Query 결과 저장 등) |
-| **overview** | ⚪ | 위키/카테고리 개요 |
-
----
-
-## 자동 갱신
-
-대시보드는 5초마다 위키 변경을 감지하여 자동 갱신합니다.
-CLI나 Obsidian에서 직접 수정해도 대시보드에 반영됩니다.
-
----
-
-## Obsidian 연동
-
-이 프로젝트 폴더가 Obsidian vault로 등록되어 있습니다.
-- **Graph View** (Cmd+G) — 위키 연결 구조
-- **Backlinks** — 현재 페이지를 참조하는 모든 페이지
-- **Cmd+Shift+D** — 클리핑 기사 이미지 로컬 다운로드
-
----
-
-## 서버
-
-\\\`python dashboard/server.py\\\` → http://localhost:8090
-
-| API | 기능 |
-|-----|------|
-| GET /api/status | Claude CLI, Obsidian 연결 상태 |
-| GET /api/wiki | 위키 데이터 (페이지, 그래프, 로그) |
-| GET /api/hash | 위키 변경 감지용 해시 |
-| POST /api/ingest | Ingest 실행 |
-| POST /api/query | Query 실행 |
-| POST /api/query/save | Query 답변을 위키에 저장 |
-| POST /api/lint | Lint 실행 |
-| POST /api/lint/fix | Lint 자동 수정 |
-| POST /api/page/update | 페이지 편집 |
-| POST /api/page/delete | 페이지 삭제 |
-`;
-  document.getElementById('content').innerHTML=\`<div class="page"><div class="md">\${marked.parse(md)}</div></div>\`;
+  var lines=[
+    '# LLM Wiki 사용법','',
+    '이 대시보드는 **Obsidian + Claude Code CLI**로 운영하는 개인 지식 베이스의 컨트롤 패널입니다.','',
+    '원본 아이디어: [Karpathy의 LLM Wiki 패턴](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f)','',
+    '---','',
+    '## 연결 상태 (좌측 하단)','',
+    '| 표시 | 의미 |','|------|------|',
+    '| 🟢 **Claude CLI** | claude 명령이 설치·인증됨 |',
+    '| 🔴 **Claude CLI** | 터미널에서 claude 실행 확인 필요 |',
+    '| 🟢 **Obsidian** | Obsidian 앱 실행 중 |',
+    '| 🔴 **Obsidian** | Obsidian을 열어주세요 |','','---','',
+    '## 주요 기능','',
+    '### + Ingest','문서를 위키에 통합합니다.',
+    '1. 상단 **+ Ingest** 클릭',
+    '2. Title, Content 입력 (Markdown 붙여넣기)',
+    '3. **Ingest with Claude** → 자동으로 raw/ 저장 + 위키 페이지 생성','',
+    '### Query','위키에 질문합니다.',
+    '1. 상단 **Query** 클릭',
+    '2. 질문 입력 → **Ask Claude**',
+    '3. 답변이 유용하면 **위키에 저장** 가능','',
+    '### Lint','위키 건강을 검진합니다.',
+    '1. 상단 **Lint** 클릭 → **Run Lint**',
+    '2. 모순, 고아 페이지, 누락 링크 등 보고',
+    '3. **자동 수정 적용** 으로 일괄 수정 가능','',
+    '### Graph','위키 지식 그래프를 시각화합니다. 노드 클릭으로 페이지 이동.','',
+    '### Edit / Delete','각 페이지 우측 상단 **Edit** / **Delete** 버튼으로 직접 편집·삭제.','',
+    '### + Folder / + Page','목적별 폴더 생성, 빈 페이지 생성.','','---','',
+    '## 페이지 타입','',
+    '| 타입 | 색상 | 용도 |','|------|------|------|',
+    '| **source** | 🟢 | 원본 문서 요약 (Ingest 시 자동 생성) |',
+    '| **entity** | 🔵 | 사람, 조직, 제품, 장소 |',
+    '| **concept** | 🟣 | 아이디어, 기술, 프레임워크 |',
+    '| **comparison** | 🟡 | 비교 분석 |',
+    '| **analysis** | 🩵 | 심층 분석 (Query 결과 저장 등) |',
+    '| **overview** | ⚪ | 위키/카테고리 개요 |','','---','',
+    '## 자동 갱신','',
+    '대시보드는 5초마다 위키 변경을 감지하여 자동 갱신합니다.','CLI나 Obsidian에서 직접 수정해도 대시보드에 반영됩니다.','','---','',
+    '## Obsidian 연동','',
+    '이 프로젝트 폴더가 Obsidian vault로 등록되어 있습니다.',
+    '- **Graph View** (Cmd+G) — 위키 연결 구조',
+    '- **Backlinks** — 현재 페이지를 참조하는 모든 페이지',
+    '- **Cmd+Shift+D** — 클리핑 기사 이미지 로컬 다운로드','','---','',
+    '## 서버','',
+    'python dashboard/server.py → http://localhost:8090','',
+    '| API | 기능 |','|-----|------|',
+    '| GET /api/status | Claude CLI, Obsidian 연결 상태 |',
+    '| GET /api/wiki | 위키 데이터 (페이지, 그래프, 로그) |',
+    '| GET /api/hash | 위키 변경 감지용 해시 |',
+    '| POST /api/ingest | Ingest 실행 |',
+    '| POST /api/query | Query 실행 |',
+    '| POST /api/query/save | Query 답변을 위키에 저장 |',
+    '| POST /api/lint | Lint 실행 |',
+    '| POST /api/lint/fix | Lint 자동 수정 |',
+    '| POST /api/page/update | 페이지 편집 |',
+    '| POST /api/page/delete | 페이지 삭제 |',
+  ];
+  var md=lines.join('\n');
+  document.getElementById('content').innerHTML='<div class="page"><div class="md">'+marked.parse(md)+'</div></div>';
 }
 
 // ─── Folder/Page create ───
@@ -508,7 +527,7 @@ function showCreateFolder(){updateFolderSelects();document.getElementById('modal
 function showCreatePage(){updateFolderSelects();document.getElementById('modalPage').classList.add('show');document.getElementById('newPageTitle').focus();}
 function closeModals(){document.querySelectorAll('.modal-bg').forEach(m=>m.classList.remove('show'));}
 function updateFolderSelects(){
-  const opts='<option value="">wiki/ (root)</option>'+(folders?folders.children.map(c=>\`<option value="\${c.name}">\${c.name}/</option>\`).join(''):'');
+  const opts='<option value="">wiki/ (root)</option>'+(folders?folders.children.map(c=>`<option value="${c.name}">${c.name}/</option>`).join(''):'');
   ['newFolderParent','newPageFolder'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML=opts;});
 }
 async function doCreateFolder(){const n=document.getElementById('newFolderName').value.trim(),p=document.getElementById('newFolderParent').value;if(!n){alert('Folder name required');return;}
@@ -520,7 +539,7 @@ async function doCreatePage(){const t=document.getElementById('newPageTitle').va
 // ─── Events ───
 document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{tab=b.dataset.t;document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b));renderSidebar();});
 document.querySelectorAll('.toolbar button[data-v]').forEach(b=>b.onclick=()=>{
-  const v=b.dataset.v;if(v==='graph')showGraph();else if(v==='ingest')showIngest();else if(v==='query')showQuery();else if(v==='lint')showLint();else if(v==='guide')showGuide();else if(cur)showPage(cur);});
+  const v=b.dataset.v;if(v==='graph')showGraph();else if(v==='ingest')showIngest();else if(v==='query')showQuery();else if(v==='lint')showLint();else if(v==='schema')showSchema();else if(v==='guide')showGuide();else if(cur)showPage(cur);});
 document.getElementById('q').oninput=e=>{sq=e.target.value;if(tab!=='pages'){tab='pages';document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x.dataset.t==='pages'));}renderSidebar();};
 document.querySelectorAll('.modal-bg').forEach(m=>m.onclick=e=>{if(e.target===m)closeModals();});
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModals();});
