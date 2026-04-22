@@ -607,6 +607,153 @@ def do_fix_citations(page_filename):
     return {"ok": ok, "output": out, "error": err}
 
 
+REFLECT_DIR = PROJECT_ROOT / "reflect-reports"
+REFLECT_DIR.mkdir(exist_ok=True)
+
+
+def _collect_reflect_context(window):
+    """window에 따라 log 항목 + ingest-reports 텍스트 수집"""
+    # log.md 파싱
+    log_file = WIKI_DIR / "log.md"
+    log_text = log_file.read_text("utf-8") if log_file.exists() else ""
+
+    # ingest-reports 수집
+    report_dir = PROJECT_ROOT / "ingest-reports"
+    reports = []
+    if report_dir.is_dir():
+        for f in sorted(report_dir.glob("*.md"), reverse=True):
+            reports.append({"name": f.name, "content": f.read_text("utf-8")[:2000]})
+
+    # query-log.jsonl에서 wiki_ratio 낮은 쿼리 수집
+    low_ratio_queries = []
+    qlog = PROJECT_ROOT / "query-log.jsonl"
+    if qlog.exists():
+        for line in qlog.read_text("utf-8").strip().split("\n"):
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+                if entry.get("wiki_ratio", 1.0) < 0.5:
+                    low_ratio_queries.append(entry)
+            except json.JSONDecodeError:
+                pass
+
+    # window로 범위 제한
+    if window == "last-10-ingests":
+        reports = reports[:10]
+    elif window == "last-week":
+        from datetime import timedelta
+        cutoff = (datetime.now() - timedelta(days=7)).isoformat()[:10]
+        reports = [r for r in reports if r["name"][:10] >= cutoff]
+
+    return {
+        "log_text": log_text[-3000:],  # 최근 3000자
+        "reports": reports[:20],
+        "low_ratio_queries": low_ratio_queries[:10],
+    }
+
+
+def do_reflect(window="last-10-ingests"):
+    ctx = _collect_reflect_context(window)
+
+    reports_summary = "\n\n".join(
+        f"### {r['name']}\n{r['content']}" for r in ctx["reports"]
+    ) or "(no ingest reports)"
+
+    low_ratio = "\n".join(
+        f"- Q: {q['question'][:80]}  (wiki_ratio: {q['wiki_ratio']})"
+        for q in ctx["low_ratio_queries"]
+    ) or "(none)"
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    report_path = f"reflect-reports/{today}.md"
+
+    prompt = f"""다음 데이터를 분석해:
+
+## 최근 Wiki Log (발췌)
+{ctx['log_text'][-1500:]}
+
+## Ingest Reports
+{reports_summary[:3000]}
+
+## wiki_ratio 낮은 쿼리
+{low_ratio}
+
+위 데이터를 바탕으로 다음을 분석해:
+
+1. **SUGGESTED_PAGES**: 반복적으로 등장하는 엔티티/컨셉 중 아직 wiki/에 전용 페이지가 없는 것을 찾아 리스트. 각 항목에 왜 필요한지 1줄.
+
+2. **SUGGESTED_SCHEMA**: 여러 ingest에서 같은 판단 패턴이 보이면, CLAUDE.md에 추가할 규칙을 제안. diff 형태로.
+
+3. **SUGGESTED_SOURCES**: wiki_ratio가 낮았던 쿼리의 주제에 대한 소스가 부족하다는 의미. 해당 주제를 보강할 검색어 리스트를 추천.
+
+4. **CONTRADICTION_REVIEW**: 자주 충돌하는 소스 부류가 있으면 contradiction 정책 보완을 제안.
+
+결과를 {report_path} 파일로 저장해. 형식:
+# Reflect Report — {today}
+## Suggested Pages
+- page-name — 이유
+## Suggested Schema Updates
+(diff 또는 추가할 규칙 텍스트)
+## Suggested Sources
+- "검색어" — 이유
+## Contradiction Review
+(발견 사항 또는 "없음")
+
+또한 각 섹션 제목 앞에 SUGGESTED_PAGES:, SUGGESTED_SCHEMA:, SUGGESTED_SOURCES:, CONTRADICTION_REVIEW: 마커를 넣어 파싱 가능하게 해."""
+
+    ok, out, err = run_claude(prompt)
+    if ok:
+        git_mgr._stage_all()
+        if REFLECT_DIR.is_dir():
+            git_mgr._run("add", "reflect-reports/")
+        git_mgr._run("commit", "-m", f"reflect: {today} ({window})")
+
+    # 구조화된 섹션 파싱 — report 파일에서 직접 읽음
+    sections = {"suggested_pages": "", "suggested_schema": "", "suggested_sources": "", "contradiction_review": ""}
+    report_file = PROJECT_ROOT / report_path
+    report_text = report_file.read_text("utf-8") if report_file.exists() else out
+    # ## SUGGESTED_PAGES: 또는 ## Suggested Pages 형태 모두 처리
+    section_patterns = [
+        (r"##\s*(?:SUGGESTED_PAGES:?\s*)?Suggested Pages\b", "suggested_pages"),
+        (r"##\s*(?:SUGGESTED_SCHEMA:?\s*)?Suggested Schema", "suggested_schema"),
+        (r"##\s*(?:SUGGESTED_SOURCES:?\s*)?Suggested Sources", "suggested_sources"),
+        (r"##\s*(?:CONTRADICTION_REVIEW:?\s*)?Contradiction Review", "contradiction_review"),
+    ]
+    import re as _re
+    positions = []
+    for pattern, key in section_patterns:
+        m = _re.search(pattern, report_text, _re.IGNORECASE)
+        if m:
+            positions.append((m.end(), key))
+    positions.sort(key=lambda x: x[0])
+    for i, (start, key) in enumerate(positions):
+        end = positions[i + 1][0] if i + 1 < len(positions) else len(report_text)
+        # 끝에서 다음 ## 헤딩 찾기
+        next_heading = _re.search(r"\n##\s", report_text[start:end])
+        if next_heading:
+            end = start + next_heading.start()
+        sections[key] = report_text[start:end].strip().lstrip("#").strip()
+
+    return {
+        "ok": ok, "error": err,
+        "raw_output": out,
+        "report_path": report_path,
+        "sections": sections,
+    }
+
+
+def get_last_reflect_date():
+    """마지막 reflect-reports 날짜"""
+    if not REFLECT_DIR.is_dir():
+        return None
+    files = sorted(REFLECT_DIR.glob("*.md"), reverse=True)
+    if not files:
+        return None
+    # 파일명: YYYY-MM-DD.md
+    return files[0].stem
+
+
 def do_lint():
     today = datetime.now().strftime("%Y-%m-%d")
     idx_inst = get_index_instruction(WIKI_DIR)
@@ -761,6 +908,17 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(get_strategy(WIKI_DIR))
         if path == "/api/raw/integrity":
             return self._json(check_raw_integrity())
+        if path == "/api/reflect/status":
+            last = get_last_reflect_date()
+            days_ago = None
+            if last:
+                try:
+                    from datetime import timedelta
+                    d = datetime.strptime(last, "%Y-%m-%d")
+                    days_ago = (datetime.now() - d).days
+                except Exception:
+                    pass
+            return self._json({"last_date": last, "days_ago": days_ago})
         super().do_GET()
 
     def do_POST(self):
@@ -794,6 +952,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(git_mgr.revert_ingest(body.get("commit_hash", "")))
         if path == "/api/provenance/fix":
             return self._json(do_fix_citations(body.get("page", "")))
+        if path == "/api/reflect":
+            return self._json(do_reflect(body.get("window", "last-10-ingests")))
         if path == "/api/index/rebuild":
             result = rebuild_index(WIKI_DIR)
             if result["ok"]:

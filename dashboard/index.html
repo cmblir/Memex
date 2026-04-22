@@ -109,6 +109,18 @@ main{display:flex;flex-direction:column;overflow:hidden}
 .modal .actions button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
 .modal .actions button.danger{background:var(--red);border-color:var(--red);color:#fff}
 
+/* Reflect */
+.reflect-section{margin-bottom:20px;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.reflect-hdr{padding:10px 14px;background:var(--bg2);font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px;cursor:pointer}
+.reflect-hdr:hover{background:var(--bg3)}
+.reflect-hdr .r-arrow{font-size:10px;transition:transform .15s;width:12px}.reflect-hdr .r-arrow.open{transform:rotate(90deg)}
+.reflect-body{padding:14px;display:none;font-size:13px;line-height:1.6}
+.reflect-body.show{display:block}
+.reflect-item{display:flex;align-items:center;gap:8px;padding:4px 0}
+.reflect-item .ri-name{flex:1}
+.reflect-badge{display:inline-block;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600;margin-left:8px}
+.rb-overdue{background:#f8514922;color:var(--red)}
+
 /* Index strategy banner */
 .idx-banner{padding:6px 16px;font-size:12px;border-bottom:1px solid var(--border);display:none;align-items:center;gap:8px}
 .idx-banner.show{display:flex}
@@ -213,6 +225,7 @@ main{display:flex;flex-direction:column;overflow:hidden}
       <button data-v="ingest">+ Ingest</button>
       <button data-v="query">Query</button>
       <button data-v="lint">Lint</button>
+      <button data-v="reflect" id="reflectBtn">Reflect</button>
       <button data-v="graph">Graph</button>
       <button data-v="history">History</button>
       <button data-v="provenance">Provenance</button>
@@ -267,7 +280,7 @@ renderer.blockquote=function(body){
 marked.setOptions({renderer});
 
 // ─── Init ───
-async function init(){await Promise.all([loadWiki(),loadFolders(),checkStatus()]);render();setInterval(checkStatus,15000);setInterval(pollChanges,5000);}
+async function init(){await Promise.all([loadWiki(),loadFolders(),checkStatus()]);render();setInterval(checkStatus,15000);setInterval(pollChanges,5000);checkReflectStatus();}
 async function loadWiki(){try{const r=await fetch('/api/wiki');D=await r.json();}catch(e){}}
 async function loadFolders(){try{const r=await fetch('/api/folders');folders=await r.json();}catch(e){}}
 async function checkStatus(){
@@ -631,6 +644,79 @@ async function doLintFix(){
   }catch(e){res.className='result-box err';res.textContent='Network error: '+e.message;}
 }
 
+// ─── Reflect ───
+async function checkReflectStatus(){
+  try{
+    var r=await fetch('/api/reflect/status');var d=await r.json();
+    var btn=document.getElementById('reflectBtn');if(!btn)return;
+    if(d.days_ago===null||d.days_ago>=7){
+      btn.innerHTML='Reflect <span class="reflect-badge rb-overdue">'+(d.days_ago===null?'never':d.days_ago+'d ago')+'</span>';
+    }
+  }catch(e){}
+}
+
+function showReflect(){
+  setView('reflect');cur=null;
+  document.getElementById('bc').innerHTML='<b>Reflect</b> · 위키 메타 분석';
+  var h='<div class="panel"><h2>Reflect</h2>';
+  h+='<p class="desc">최근 ingest 보고서, 로그, 쿼리 기록을 분석하여 위키 개선을 제안합니다. 주 1회 권장.</p>';
+  h+='<div class="field"><label>Analysis Window</label><select id="reflectWindow">';
+  h+='<option value="last-10-ingests">최근 10회 ingest</option>';
+  h+='<option value="last-week">최근 1주</option>';
+  h+='<option value="all">전체</option>';
+  h+='</select></div>';
+  h+='<button class="btn btn-accent" id="reflectRunBtn" onclick="doReflect()">Run Reflect</button>';
+  h+='<div id="reflectResult"></div>';
+  h+='</div>';
+  document.getElementById('content').innerHTML=h;
+}
+
+async function doReflect(){
+  var win=document.getElementById('reflectWindow').value;
+  var btn=document.getElementById('reflectRunBtn');
+  var res=document.getElementById('reflectResult');
+  btn.disabled=true;btn.textContent='Analyzing...';
+  res.className='result-box info';res.textContent='Claude가 위키를 메타 분석 중... (1~3분 소요)';
+  try{
+    var r=await fetch('/api/reflect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({window:win})});
+    var d=await r.json();
+    if(d.ok){
+      var h='';
+      // Suggested Pages
+      h+=buildReflectSection('Suggested Pages','새로 만들면 좋을 페이지',d.sections.suggested_pages,true);
+      // Suggested Schema
+      h+=buildReflectSection('Suggested Schema Updates','CLAUDE.md에 추가할 규칙',d.sections.suggested_schema,false);
+      // Suggested Sources
+      h+=buildReflectSection('Suggested Sources','보강이 필요한 주제의 검색어',d.sections.suggested_sources,false);
+      // Contradiction Review
+      h+=buildReflectSection('Contradiction Review','소스 간 충돌 패턴',d.sections.contradiction_review,false);
+      res.className='';
+      res.innerHTML=h;
+      checkReflectStatus();
+    }else{
+      res.className='result-box err';res.textContent='Error: '+d.error;
+    }
+  }catch(e){res.className='result-box err';res.textContent='Network error: '+e.message;}
+  btn.disabled=false;btn.textContent='Run Reflect';
+}
+
+function buildReflectSection(title,desc,content,showCreate){
+  if(!content||content.trim()==='(none)'||content.trim()==='없음')content='발견 사항 없음.';
+  var body=content.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g,'[$2]($1.md)').replace(/\[\[([^\]]+)\]\]/g,'[$1]($1.md)');
+  var h='<div class="reflect-section">';
+  h+='<div class="reflect-hdr" onclick="toggleReflectSection(this)"><span class="r-arrow">▶</span>'+esc(title)+'<span style="color:var(--muted);font-weight:400;font-size:11px;margin-left:auto">'+esc(desc)+'</span></div>';
+  h+='<div class="reflect-body"><div class="md">'+marked.parse(body)+'</div></div>';
+  h+='</div>';
+  return h;
+}
+
+function toggleReflectSection(hdr){
+  var arrow=hdr.querySelector('.r-arrow');
+  var body=hdr.nextElementSibling;
+  if(body.classList.contains('show')){body.classList.remove('show');arrow.classList.remove('open');}
+  else{body.classList.add('show');arrow.classList.add('open');}
+}
+
 // ─── Provenance ───
 async function showProvenance(){
   setView('provenance');cur=null;
@@ -909,7 +995,7 @@ async function doCreatePage(){const t=document.getElementById('newPageTitle').va
 // ─── Events ───
 document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{tab=b.dataset.t;document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b));renderSidebar();});
 document.querySelectorAll('.toolbar button[data-v]').forEach(b=>b.onclick=()=>{
-  const v=b.dataset.v;if(v==='graph')showGraph();else if(v==='ingest')showIngest();else if(v==='query')showQuery();else if(v==='lint')showLint();else if(v==='history')showHistory();else if(v==='provenance')showProvenance();else if(v==='schema')showSchema();else if(v==='guide')showGuide();else if(cur)showPage(cur);});
+  const v=b.dataset.v;if(v==='graph')showGraph();else if(v==='ingest')showIngest();else if(v==='query')showQuery();else if(v==='lint')showLint();else if(v==='reflect')showReflect();else if(v==='history')showHistory();else if(v==='provenance')showProvenance();else if(v==='schema')showSchema();else if(v==='guide')showGuide();else if(cur)showPage(cur);});
 document.getElementById('q').oninput=e=>{sq=e.target.value;if(tab!=='pages'){tab='pages';document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x.dataset.t==='pages'));}renderSidebar();};
 document.querySelectorAll('.modal-bg').forEach(m=>m.onclick=e=>{if(e.target===m)closeModals();});
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModals();});
