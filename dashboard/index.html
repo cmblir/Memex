@@ -842,6 +842,28 @@ async function init(){
   render();
   setInterval(checkStatus,15000);setInterval(pollChanges,5000);checkReflectStatus();
   initClaudeCharacter();
+  // URL hash 라우팅 — ?#view=ingest 등으로 특정 뷰 직접 진입 (스크린샷용)
+  handleHashRoute();
+  window.addEventListener('hashchange',handleHashRoute);
+}
+function handleHashRoute(){
+  var h=(location.hash||'').replace(/^#/,'');
+  if(!h)return;
+  var params={};h.split('&').forEach(function(kv){var p=kv.split('=');if(p[0])params[p[0]]=decodeURIComponent(p[1]||'');});
+  var v=params.view||params.v;
+  if(v==='ingest')showIngest();
+  else if(v==='query')showQuery();
+  else if(v==='graph')showGraph();
+  else if(v==='history')showHistory();
+  else if(v==='provenance')showProvenance();
+  else if(v==='write')showWrite();
+  else if(v==='compare')showCompare();
+  else if(v==='reflect')showReflect();
+  else if(v==='lint')showLint();
+  else if(v==='search')showSearch();
+  else if(v==='guide')showGuide();
+  else if(v==='schema')showSchema();
+  if(params.chat==='1')setTimeout(function(){var p=document.getElementById('chatPanel');if(p&&!p.classList.contains('open'))toggleChat();},300);
 }
 
 // ─── Claude 캐릭터 + 챗봇 ───

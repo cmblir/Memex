@@ -31,6 +31,10 @@
 <em>"Obsidian이 IDE, Claude가 프로그래머, 위키가 코드베이스."</em>
 </p>
 
+<br />
+
+<img src="docs/demo.gif" width="100%" alt="Memex dashboard demo" />
+
 </div>
 
 ---
@@ -143,6 +147,37 @@ python dashboard/server.py    # Python 3.10+, pip 의존성 0
 - **실시간 상태** — Claude CLI + Obsidian 감지, raw fact만.
 - **Wiki Ratio 게이지** — Claude가 wiki vs raw를 얼마나 참고했는지. 0.4 미만이면 위키가 raw를 대체하지 못한다는 신호.
 - **떠다니는 Claude 캐릭터** — 클릭하면 대시보드 기능에 대해 물어볼 수 있는 챗봇. 위키 내용 질문은 Query로 리다이렉트.
+
+### 화면들
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/home.png" alt="Overview" /></td>
+<td width="50%"><img src="docs/screenshots/graph.png" alt="Knowledge graph" /></td>
+</tr>
+<tr>
+<td align="center"><sub><strong>Overview</strong> — 위키 통계, 커버리지, 시작 가이드</sub></td>
+<td align="center"><sub><strong>Graph</strong> — Force-directed 지식 그래프</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/screenshots/ingest.png" alt="Ingest" /></td>
+<td width="50%"><img src="docs/screenshots/history.png" alt="History" /></td>
+</tr>
+<tr>
+<td align="center"><sub><strong>Ingest</strong> — 소스 붙여넣기, Claude가 페이지 생성</sub></td>
+<td align="center"><sub><strong>History</strong> — git 기반 수집 이력 + 되돌리기</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/screenshots/provenance.png" alt="Provenance" /></td>
+<td width="50%"><img src="docs/screenshots/query.png" alt="Query" /></td>
+</tr>
+<tr>
+<td align="center"><sub><strong>Provenance</strong> — 페이지별 인용 커버리지</sub></td>
+<td align="center"><sub><strong>Query</strong> — 위키에 질문, 읽은 파일 추적</sub></td>
+</tr>
+</table>
+
+<sub><em>직접 스크린샷을 찍으려면 서버가 실행 중일 때 <code>docs/capture.sh</code> 실행.</em></sub>
 
 ---
 

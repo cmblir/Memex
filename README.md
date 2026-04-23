@@ -31,6 +31,10 @@ Your knowledge compounds.
 <em>"Obsidian is the IDE. Claude is the programmer. The wiki is the codebase."</em>
 </p>
 
+<br />
+
+<img src="docs/demo.gif" width="100%" alt="Memex dashboard demo" />
+
 </div>
 
 ---
@@ -143,6 +147,37 @@ Open `http://localhost:8090`. Done.
 - **Live status** — Claude CLI + Obsidian detection, raw facts only.
 - **Wiki Ratio gauge** — measures how often Claude reaches into the wiki vs raw sources. Below 0.4 means your wiki isn't replacing raw yet.
 - **Floating Claude character** — click for an in-dashboard chatbot that answers questions *about the dashboard*. Wiki-content questions get redirected to Query.
+
+### Views
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/home.png" alt="Overview" /></td>
+<td width="50%"><img src="docs/screenshots/graph.png" alt="Knowledge graph" /></td>
+</tr>
+<tr>
+<td align="center"><sub><strong>Overview</strong> — wiki stats, coverage areas, getting started</sub></td>
+<td align="center"><sub><strong>Graph</strong> — force-directed knowledge graph</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/screenshots/ingest.png" alt="Ingest" /></td>
+<td width="50%"><img src="docs/screenshots/history.png" alt="History" /></td>
+</tr>
+<tr>
+<td align="center"><sub><strong>Ingest</strong> — paste source, Claude generates pages</sub></td>
+<td align="center"><sub><strong>History</strong> — git-backed ingest timeline with revert</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/screenshots/provenance.png" alt="Provenance" /></td>
+<td width="50%"><img src="docs/screenshots/query.png" alt="Query" /></td>
+</tr>
+<tr>
+<td align="center"><sub><strong>Provenance</strong> — per-page citation coverage</sub></td>
+<td align="center"><sub><strong>Query</strong> — ask the wiki, tracks files read</sub></td>
+</tr>
+</table>
+
+<sub><em>Want your own screenshots? Run <code>docs/capture.sh</code> while the server is up.</em></sub>
 
 ---
 
