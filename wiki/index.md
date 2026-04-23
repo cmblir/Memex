@@ -2,7 +2,7 @@
 title: Index
 type: overview
 created: 2026-04-22
-last_updated: 2026-04-23
+last_updated: 2026-04-22
 tags:
   - meta
 ---
@@ -13,20 +13,18 @@ All wiki pages, organized by type. Updated on every ingest.
 
 ## Overview
 - [[overview]] — wiki scope and current state
+
+## Sources
+<!-- Source summary pages will appear here as you ingest documents -->
+
 ## Entities
-- [[andrej-karpathy|Andrej Karpathy]]
-- [[ashish-vaswani|Ashish Vaswani]]
-- [[google-brain|Google Brain]]
-- [[obsidian|Obsidian]]
-- [[qmd|qmd]]
+<!-- Entity pages will appear here -->
+
 ## Concepts
-- [[multi-head-attention|Multi-Head Attention]]
-- [[persistent-wiki-pattern|Persistent Wiki Pattern]]
-- [[rag|RAG (Retrieval-Augmented Generation)]]
-- [[self-attention|Self-Attention]]
-- [[transformer|Transformer]]
-## Source
-- [[source-attention-is-all-you-need|Attention Is All You Need — 소스 요약]]
-- [[source-karpathy-llm-wiki|Karpathy: LLM Wiki]]
+<!-- Concept pages will appear here -->
+
+## Techniques
+<!-- Technique pages will appear here -->
+
 ## Analyses
-- [[한글-분석-테스트|한글 분석 테스트]]
+<!-- Analysis and comparison pages will appear here -->

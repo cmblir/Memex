@@ -2,7 +2,7 @@
 title: Overview
 type: overview
 created: 2026-04-22
-updated: 2026-04-23
+last_updated: 2026-04-22
 sources: []
 tags:
   - meta
@@ -10,12 +10,17 @@ tags:
 
 # Wiki Overview
 
-LLM Wiki 패턴과 지식 관리에 대한 위키.
+This wiki is empty — waiting for its first source.
+
+## Getting started
+
+1. Drop a document (article, paper, notes) into `raw/` (or paste into the dashboard Ingest view)
+2. Claude will create a source summary, extract entities and concepts, and wire up cross-references
+3. Watch the pages appear in Obsidian and the dashboard in real time
 
 ## Current state
 
-- **Sources**: 2 ([[source-karpathy-llm-wiki|Karpathy: LLM Wiki]], [[source-attention-is-all-you-need|Attention Is All You Need]])
-- **Entity pages**: 5 ([[andrej-karpathy]], [[ashish-vaswani]], [[google-brain]], [[obsidian]], [[qmd]])
-- **Concept pages**: 5 ([[multi-head-attention]], [[persistent-wiki-pattern]], [[rag]], [[self-attention]], [[transformer]])
-- **Analysis pages**: 1 ([[한글-분석-테스트|한글 분석 테스트]])
-- **Total wiki pages**: 16
+- **Sources**: 0
+- **Entity pages**: 0
+- **Concept pages**: 0
+- **Total wiki pages**: 3 ([[index]], [[log]], [[overview]])
