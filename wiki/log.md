@@ -2,7 +2,7 @@
 title: Log
 type: overview
 created: 2026-04-22
-last_updated: 2026-04-22
+last_updated: 2026-04-24
 tags:
   - meta
 ---
@@ -24,3 +24,8 @@ Pages updated: [[index]], [[overview]]
 Source: `raw/제목-gpt-1-improving-language-understanding-by-generative-pre-training-2018.md`
 Pages created: [[source-제목-gpt-1-improving-language-understanding-by-generative-pre-training-2018|source-gpt-1]], [[gpt-1]], [[openai]], [[alec-radford]], [[bookcorpus]], [[transformer-decoder-only]], [[pretrain-finetune-paradigm]]
 Pages updated: [[andrej-karpathy]], [[nanogpt]], [[llm-training-pipeline]], [[index]], [[overview]]
+
+## [2026-04-24] ingest | Byte Pair Encoding (BPE)
+Source: `raw/byte-pair-encoding-bpe.md`
+Pages created: [[source-byte-pair-encoding-bpe]], [[byte-pair-encoding]]
+Pages updated: [[andrej-karpathy]], [[nanochat]], [[llm-training-pipeline]], [[index]], [[overview]]

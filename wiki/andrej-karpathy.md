@@ -7,8 +7,8 @@ tags:
   - openai
   - tesla
 created: 2026-04-23
-last_updated: 2026-04-23
-source_count: 1
+last_updated: 2026-04-24
+source_count: 2
 confidence: high
 status: active
 ---
@@ -25,6 +25,7 @@ AI 연구자. 전 [[openai|OpenAI]] 창립 멤버이자 전 Tesla AI 디렉터.[
 ## 교육 콘텐츠
 
 - **[[llm101n|LLM101n]]**: LLM을 처음부터 구축하는 과정을 가르치는 강의. nanochat을 캡스톤 프로젝트로 활용 예정.[^src-제목-안드레이-카파시andrej-karpathy의-nanochat-100달러로-만드는-나만의-chatgpt]
+- **'Let's build the GPT Tokenizer'**: [[byte-pair-encoding|BPE]] 토크나이저를 바닥부터 구현하며 심도 있게 해설하는 강의.[^src-byte-pair-encoding-bpe]
 
 ## 입장 및 견해
 
@@ -33,3 +34,5 @@ AI 연구자. 전 [[openai|OpenAI]] 창립 멤버이자 전 Tesla AI 디렉터.[
 ---
 
 [^src-제목-안드레이-카파시andrej-karpathy의-nanochat-100달러로-만드는-나만의-chatgpt]: [[source-제목-안드레이-카파시andrej-karpathy의-nanochat-100달러로-만드는-나만의-chatgpt]]
+
+[^src-byte-pair-encoding-bpe]: [[source-byte-pair-encoding-bpe]]

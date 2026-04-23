@@ -8,8 +8,8 @@ tags:
   - pytorch
   - training-framework
 created: 2026-04-23
-last_updated: 2026-04-23
-source_count: 1
+last_updated: 2026-04-24
+source_count: 2
 confidence: high
 status: active
 ---
@@ -22,7 +22,7 @@ status: active
 
 [[llm-training-pipeline|LLM 학습 파이프라인]] 전 과정을 포함:
 
-1. **토크나이저 학습** — 어휘 크기 65,536 토큰, 약 4.8 문자/토큰, Rust 구현[^src-제목-안드레이-카파시andrej-karpathy의-nanochat-100달러로-만드는-나만의-chatgpt]
+1. **토크나이저 학습** — 어휘 크기 65,536 토큰, 약 4.8 문자/토큰, Rust 구현[^src-제목-안드레이-카파시andrej-karpathy의-nanochat-100달러로-만드는-나만의-chatgpt] (LLM에서 가장 대중적인 토큰화 알고리즘은 [[byte-pair-encoding|BPE]][^src-byte-pair-encoding-bpe])
 2. **사전학습(Pretraining)** — FineWeb-EDU 데이터셋 사용[^src-제목-안드레이-카파시andrej-karpathy의-nanochat-100달러로-만드는-나만의-chatgpt]
 3. **[[midtraining|중간학습(Midtraining)]]** — SmolTalk 데이터(사용자-어시스턴트 대화, 객관식 문제, tool use)[^src-제목-안드레이-카파시andrej-karpathy의-nanochat-100달러로-만드는-나만의-chatgpt]
 4. **지도학습 미세조정(SFT)**
@@ -61,3 +61,5 @@ status: active
 ---
 
 [^src-제목-안드레이-카파시andrej-karpathy의-nanochat-100달러로-만드는-나만의-chatgpt]: [[source-제목-안드레이-카파시andrej-karpathy의-nanochat-100달러로-만드는-나만의-chatgpt]]
+
+[^src-byte-pair-encoding-bpe]: [[source-byte-pair-encoding-bpe]]
