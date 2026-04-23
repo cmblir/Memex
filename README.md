@@ -1,261 +1,305 @@
-# Karpathy LLM Dashboard
+<div align="center">
 
-A personal knowledge base that writes itself.
+<br />
 
-Based on [Andrej Karpathy's LLM Wiki pattern](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f). Sources go in, a persistent wiki comes out — maintained entirely by Claude, viewed in Obsidian and this dashboard.
+<img src="dashboard/claude_character.svg" width="100" alt="Memex character" />
 
-**[한국어 README](README-ko.md)**
+<h1>Memex</h1>
+
+<p><strong>A personal knowledge base that writes itself.</strong></p>
+
+<p>
+Drop a source. Claude does the bookkeeping.<br/>
+Your knowledge compounds.
+</p>
+
+<p>
+<a href="#quick-start"><img alt="Quick start" src="https://img.shields.io/badge/quick%20start-60s-111?style=flat-square" /></a>
+&nbsp;
+<img alt="Dependencies" src="https://img.shields.io/badge/pip%20deps-0-111?style=flat-square" />
+&nbsp;
+<img alt="License" src="https://img.shields.io/badge/license-MIT-111?style=flat-square" />
+&nbsp;
+<img alt="Made with Claude Code" src="https://img.shields.io/badge/made%20with-Claude%20Code-111?style=flat-square" />
+&nbsp;
+<a href="README-ko.md"><img alt="한국어" src="https://img.shields.io/badge/한국어-README-111?style=flat-square" /></a>
+</p>
+
+<br />
+
+<p>
+<em>"Obsidian is the IDE. Claude is the programmer. The wiki is the codebase."</em>
+</p>
+
+</div>
+
+---
+
+## Why?
+
+Most LLM-plus-documents setups **re-derive knowledge on every query**. RAG finds chunks, the model stitches an answer, nothing is kept. Ten queries against the same docs → ten rediscoveries.
+
+**Memex inverts this.** You add a source once. Claude reads it, integrates it into a persistent wiki, flags contradictions against older pages, wires up citations, and commits the result. By query #10, the wiki is doing the synthesis for free — the bookkeeping has already happened.
+
+Based on [Andrej Karpathy's LLM Wiki pattern](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f). Named for [Vannevar Bush's 1945 Memex](https://en.wikipedia.org/wiki/Memex).
 
 ---
 
 ## The pattern
 
-RAG rediscovers knowledge from scratch on every query. This doesn't. Claude reads your sources once, integrates them into a growing wiki of interlinked pages, and every new source compounds on the last. You curate sources and ask questions. Claude handles the bookkeeping — summaries, cross-references, citations, contradictions, stale-claim tracking.
+```
+   raw/              Original sources. Immutable. 4-layer protection.
+     │
+     ▼  ingest
+   wiki/             Claude-maintained pages. Entities, concepts, summaries.
+     │               Inline citations [^src-*]. Auto cross-referenced.
+     │               Every change is a git commit.
+     ▼
+   Obsidian graph + Dashboard
+                     Browse, query, analyze, reflect, compare, write.
+```
 
-- `raw/` is **immutable** source documents (articles, papers, notes). Claude reads but cannot modify — protected at 4 levels.
-- `wiki/` is LLM-maintained markdown pages — entity pages, concept pages, source summaries, analyses.
-- `CLAUDE.md` is the schema that tells Claude how to operate the wiki.
-- The **dashboard** is a browser-based control panel at `http://localhost:8090`.
+- **You**: curate sources, ask questions, direct the analysis.
+- **Claude**: summarize, cross-reference, cite, detect contradictions, file.
+- **The wiki**: compounds.
 
 ---
 
 ## Quick start
 
 ```bash
-git clone https://github.com/cmblir/karpathy-llm-dashboard.git my-wiki
-cd my-wiki
-python dashboard/server.py
-# → http://localhost:8090
+git clone https://github.com/cmblir/memex.git
+cd memex
+python dashboard/server.py    # Python 3.10+, zero pip deps
 ```
 
-Open the vault in Obsidian ("Open folder as vault" → select `my-wiki`). Obsidian settings, graph colors, and hotkeys are pre-configured.
+Open `http://localhost:8090`. Done.
 
-**Requirements**: Python 3.10+ (zero dependencies), [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) (`npm install -g @anthropic-ai/claude-code`), a browser. Obsidian optional but recommended.
+<br />
+
+<details>
+<summary><strong>Requirements</strong></summary>
+
+- Python 3.10+ (stdlib only)
+- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) — `npm install -g @anthropic-ai/claude-code`
+- A browser
+- Obsidian — *optional* but pre-configured. The repo ships as a ready Obsidian vault.
+
+</details>
 
 ---
 
-## Dashboard
+## What you get
 
-### UI/UX
+<table>
+<tr>
+<td width="50%" valign="top">
 
-- **Floating assistant character** — a pixel-art Claude character wanders the screen. Click (or drag) to open a chat panel where you can ask how any feature works. Powered by Claude CLI with dashboard-specific context; does not answer wiki content questions (those go through Query).
-- **Black & white design** — monochrome palette; color is reserved for status and diffs only.
-- **Categorized toolbar** — operations are grouped into 5 dropdowns (Work, Analyze, Browse, Create, More). The parent of your active view is highlighted.
-- **Interactive** — hover/focus animations, toast notifications, dropdown pop, smooth view transitions.
-- **Resizable sidebar** — drag the right edge (220–500px) or press `Cmd/Ctrl + B` to collapse. Width persists in `localStorage`.
-- **Folder continuous view** — click a folder *name* in the tree to read all its pages in one long scroll with a floating scroll-spy.
-- **Bilingual** — EN / 한국어 toggle in the header. Your choice persists.
-- **Model selector** — pick Claude model from the header (Opus 4.7 / Sonnet 4.6 / Haiku 4.5 / Default).
+### ◆ Core operations
+- **Ingest** — Paste source → diff + WHY report + auto-commit
+- **Query** — Ask the wiki. Tracks files read, Wiki Ratio, tokens
+- **Lint** — 16-point health check + auto-fix
+- **Reflect** — Weekly meta-analysis of the whole wiki
+- **Write** — Draft essays from the wiki, citations auto-inserted
+- **Compare** — Two pages → similarities/differences
+- **Review** — Spaced review of stale pages
+- **Search** — TF-IDF full-text, zero deps
+- **Slides** — Export any page as a Marp deck
+- **Graph** — Force-directed knowledge graph
 
-### Operations
+</td>
+<td width="50%" valign="top">
 
-| Category | Feature | What it does |
-|----------|---------|--------------|
-| **Work** | Ingest | Paste a source → `raw/` → Claude generates/updates wiki pages → diff + reasoning panel + revert |
-| | Query | Ask a question. Tracked: which files were read, wiki-vs-raw ratio, token usage |
-| | Write | Writing Companion: draft essays using the wiki. Citations auto-inserted. Topic/length/style |
-| | Compare | Pick two pages → similarities/differences/implications → save as `comparison` page |
-| **Analyze** | Lint | 16-point health check. Auto-fix button |
-| | Reflect | Weekly meta-analysis. Suggested pages / schema updates / missing sources / contradiction patterns |
-| | Review | Spaced Review: list `status: active` pages not updated for 30+ days. One-click refresh |
-| | Provenance | Per-page citation coverage (claims with `[^src-*]` / total claims). Auto-fix button |
-| **Browse** | Search | TF-IDF full-text search across the wiki |
-| | Graph | Force-directed knowledge graph. Drag nodes, click to open |
-| | History | Git-backed ingest history. One-click revert of any ingest |
-| **Create** | + Folder | New wiki subfolder |
-| | + Page | Empty page with frontmatter |
-| **More** | CLAUDE.md | View and edit the schema from the dashboard |
-| | Guide | Built-in interactive guide (streamed on first view) |
+### ◆ Infrastructure
+- **Git-backed history** — every ingest is a commit
+- **One-click revert** — undo any ingest
+- **Inline citations** — `[^src-*]` rendered as badges
+- **raw/ immutability** — 4 layers of protection
+- **Adaptive indexing** — flat → hierarchical → indexed (auto)
+- **Schema (CLAUDE.md)** — the rules Claude follows
+- **WHY reports** — every ingest explains its own decisions
+- **Query log** — drives the Wiki Ratio gauge
+- **Bilingual UI** — EN / 한국어 toggle
+- **Model selector** — Opus / Sonnet / Haiku
 
-### Per-page actions
+</td>
+</tr>
+</table>
 
-- **Edit** — inline markdown editor
-- **Slides** — export page as Marp-compatible slide deck
-- **Delete** — for non-system pages
+---
 
-### Header indicators
+## The dashboard
 
-- **Live dot** + stats: total pages · sources · links
-- **Wiki Ratio gauge** — how much Claude relied on wiki vs raw in recent queries. Below 0.4 means your wiki isn't replacing raw effectively
-- **Index strategy badge** — `flat` (<50 pages), `hierarchical` (50–200), `indexed` (>200, qmd recommended)
-- **Status bar (bottom-left)**: Claude CLI, Obsidian — both report raw facts (process/vault_open), no guesses
+<div align="center">
+<em>Monochrome. Categorized. Interactive.</em>
+</div>
+
+<br />
+
+- **Black & white** — color is reserved for status and diffs only.
+- **Categorized toolbar** — 13 operations in 5 dropdowns (Work, Analyze, Browse, Create, More).
+- **Resizable sidebar** — drag the edge, or `Cmd/Ctrl + B` to collapse.
+- **Folder continuous view** — click a folder *name* to read all its pages in one scroll.
+- **Live status** — Claude CLI + Obsidian detection, raw facts only.
+- **Wiki Ratio gauge** — measures how often Claude reaches into the wiki vs raw sources. Below 0.4 means your wiki isn't replacing raw yet.
+- **Floating Claude character** — click for an in-dashboard chatbot that answers questions *about the dashboard*. Wiki-content questions get redirected to Query.
 
 ---
 
 ## How knowledge accumulates
 
 ```
-you drop a source ─────────►  raw/article.md
-                              │
-                              ▼
-           Claude reads it, generates:
-           ├─ wiki/source-article.md     (summary, auto-created)
-           ├─ wiki/entity-X.md           (new or updated)
-           ├─ wiki/concept-Y.md          (new or updated)
-           ├─ wiki/index.md              (updated)
-           ├─ wiki/log.md                (appended)
-           └─ ingest-reports/YYYY-MM-DD-{slug}.md  (WHY report)
+You drop a source ─────►  raw/article.md
+                          │
+                          ▼
+  Claude reads it, writes:
+  ├─ wiki/source-article.md     (source summary)
+  ├─ wiki/entity-X.md           (new or updated)
+  ├─ wiki/concept-Y.md          (new or updated, with citations)
+  ├─ wiki/index.md              (updated)
+  ├─ wiki/log.md                (appended)
+  └─ ingest-reports/...md       (WHY report)
 
-           │
-           ▼
-           git commit: "ingest: Article Title"
-           │
-           ▼
-           Dashboard shows: diff view + reasoning + approve / revert
+                          │
+                          ▼
+  git commit "ingest: <title>"
+                          │
+                          ▼
+  Dashboard shows: diff + reasoning + approve / revert
 ```
 
-Every ingest is a git commit. Every page has a revert path.
+Every ingest is revertable. Every claim has a citation. Every contradiction gets one of three policies (Historical / Disputed / Superseded).
 
 ---
 
-## Infrastructure
+## CLI usage
 
-- **Git-backed history**. Every ingest is a commit. Every revert is a proper `git revert`.
-- **Inline citations**. Every factual claim needs `[^src-source-slug]`. Rendered in the dashboard as numbered badges with source-page tooltips.
-- **Provenance tracking**. `/api/provenance` reports citation coverage per page.
-- **raw/ immutability** — 4-layer defense:
-  1. `CLAUDE.md` instructs LLM never to modify raw/
-  2. Every ingest prompt includes "raw/ is immutable"
-  3. `assert_writable()` blocks programmatic writes at the server
-  4. `check_raw_integrity()` detects post-hoc tampering
-- **Adaptive indexing**. At 50 pages, `index.md` auto-splits into `index-sources.md`, `index-entities.md`, `index-concepts.md`, etc. Prompts reference only the relevant sub-index.
-- **Ingest reports** (`ingest-reports/`). Claude writes a WHY report for every ingest — "why did I create this page, modify that one, add this cross-link?"
-- **Reflect reports** (`reflect-reports/`). Weekly meta-analysis saved for later.
-- **Query log** (`query-log.jsonl`). Tracks files read, wiki ratio, token usage. Feeds the Wiki Ratio gauge.
-- **Contradiction resolution**. CLAUDE.md defines 3 paths: historical-claims shelf, disputed flag, superseded chain.
+Everything in the dashboard works from the terminal:
+
+```bash
+claude
+"Ingest raw/some-article.md"
+"What is Self-Attention?"
+"Lint the wiki"
+"Reflect on the last 10 ingests"
+```
+
+The dashboard shells out to `claude -p` underneath. Use whichever you prefer; they share the same state.
 
 ---
 
-## Schema (`CLAUDE.md`)
+## Configuration
 
-The schema covers:
+```bash
+# Environment variables
+CLAUDE_TIMEOUT=1200  python dashboard/server.py   # 20-min timeout for large ingests
+CLAUDE_QUICK_TIMEOUT=30
+CLAUDE_TOOLS=Edit,Write,Read,Glob,Grep
+```
 
-- **Frontmatter rules** — `type`, `confidence`, `status`, `source_count`, `superseded_by`.
-- **Inline citation rules** — format, obligation criteria, source slug mapping.
-- **Contradiction resolution** — 3 cases with concrete example markdown.
-- **Ingest workflow** — 9-step strict procedure. Pages cannot be created without at least one citation.
-- **Lint checklist** — 16 checks across structure / citation / link / freshness.
+Or edit `CLAUDE.md` — the schema Claude follows. Frontmatter rules, citation rules, contradiction resolution, ingest workflow, lint checklist. Changes take effect on the next operation.
 
-Edit it in the dashboard (More → CLAUDE.md → Edit) or from the terminal. Changes take effect from the next operation.
+---
+
+## Troubleshooting
+
+<details>
+<summary><strong>"Claude CLI timeout"</strong></summary>
+
+Default is 10 min. Increase with `CLAUDE_TIMEOUT=1800`. The dashboard shows a **Run Claude CLI diagnostic** button on timeout — it calls `/api/claude/diagnose` and checks installation, auth, response time, model speed.
+
+</details>
+
+<details>
+<summary><strong>"vault not registered"</strong></summary>
+
+Hover the status bar — it shows your project path vs Obsidian's known vaults. Click **Register** to auto-add to `obsidian.json`, then restart Obsidian.
+
+</details>
+
+<details>
+<summary><strong>Slow ingestion</strong></summary>
+
+Opus 4.7 is slowest. Switch to **Sonnet 4.6** or **Haiku 4.5** in the header dropdown for faster ingests.
+
+</details>
+
+<details>
+<summary><strong>Expecting value: line 1 column 1</strong></summary>
+
+This is Python's empty-JSON error. Fixed — all endpoints now return valid JSON even on crash. If you still see it, check `/tmp/wiki-server.log` for the traceback.
+
+</details>
 
 ---
 
 ## Repository layout
 
 ```
-raw/                     source documents (immutable)
-raw/assets/              images
-wiki/                    LLM-maintained pages
-  index.md               content catalog (auto flat/hierarchical)
-  log.md                 activity timeline
-  overview.md            wiki stats
-ingest-reports/          per-ingest WHY report
-reflect-reports/         weekly meta-analysis
-plans/                   project plans (feature queues)
-query-log.jsonl          query tracking log (gitignored)
-.dashboard-settings.json  runtime settings (model, gitignored)
+raw/                       Immutable sources
+wiki/                      Claude-maintained pages
+  index.md                 Content catalog (auto flat/hierarchical)
+  log.md                   Activity timeline
+  overview.md              Stats + coverage areas
+ingest-reports/            One WHY report per ingest
+reflect-reports/           Weekly meta-analyses
 dashboard/
-  server.py              API server (Python 3.10+, stdlib only)
-  index.html             single-file dashboard UI
-  provenance.py          citation parsing + coverage
-  index_strategy.py      adaptive indexing
-  build.py               (optional) wiki → data.json compiler
-CLAUDE.md                schema
-.obsidian/               pre-configured vault settings
+  server.py                Zero-dep API server
+  index.html               Single-file dashboard UI
+  provenance.py            Citation parsing + coverage
+  index_strategy.py        Adaptive indexing
+  claude_character.svg     The floating helper
+CLAUDE.md                  Schema (the rules Claude follows)
+.obsidian/                 Pre-configured vault
 ```
 
 ---
 
-## API reference
+## API
+
+Dashboard talks to the server via 30+ endpoints:
+
+<details>
+<summary><strong>Show all endpoints</strong></summary>
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/status` | Claude CLI + Obsidian connection (raw facts) |
-| GET | `/api/wiki` | All wiki data (pages, graph, log, stats) |
+| GET | `/api/status` | Claude CLI + Obsidian — raw facts only |
+| GET | `/api/wiki` | Full wiki data |
 | GET | `/api/folders` | Folder tree |
-| GET | `/api/hash` | Change-detection hash |
-| GET | `/api/schema` | Read `CLAUDE.md` |
-| GET | `/api/history` | Ingest commit history |
-| GET | `/api/provenance` | Citation coverage per page |
-| GET | `/api/query-stats` | Recent query Wiki Ratio average |
-| GET | `/api/index/status` | Current indexing strategy |
+| GET | `/api/hash` | Change detection |
+| GET | `/api/schema` | Read CLAUDE.md |
+| GET | `/api/history` | Ingest commits |
+| GET | `/api/provenance` | Citation coverage |
+| GET | `/api/query-stats` | Wiki Ratio |
+| GET | `/api/index/status` | Strategy badge |
 | GET | `/api/raw/integrity` | raw/ tampering check |
 | GET | `/api/reflect/status` | Last reflect date |
-| GET | `/api/review/list` | Pages stale for 30+ days |
-| GET | `/api/settings` | Current model + available models |
-| POST | `/api/settings` | `{model}` — change Claude model |
-| POST | `/api/ingest` | `{title, content, folder}` — with diff + reasoning + auto-commit |
-| POST | `/api/query` | `{question}` — tracks files_read + wiki_ratio |
-| POST | `/api/query/save` | `{title, content}` — save as analysis page |
-| POST | `/api/lint` / `/api/lint/fix` | health check + auto-fix |
-| POST | `/api/reflect` | `{window}` — meta-analysis |
-| POST | `/api/write` | `{topic, length, style}` — writing companion |
-| POST | `/api/compare` | `{page_a, page_b, save_as?}` |
-| POST | `/api/review/refresh` | `{filename}` — refresh stale page |
-| POST | `/api/slides` | `{page}` — Marp export |
-| POST | `/api/search` | `{query, top_k}` — TF-IDF |
-| POST | `/api/suggest/sources` | recommend next sources |
-| POST | `/api/assistant` | `{question, lang, history}` — dashboard helper chatbot |
-| POST | `/api/provenance/fix` | `{page}` — fill missing citations |
-| POST | `/api/index/rebuild` | force index rebuild |
-| POST | `/api/revert` | `{commit_hash}` — revert an ingest |
-| POST | `/api/page` / `/api/page/update` / `/api/page/delete` | page CRUD |
-| POST | `/api/folder` | create folder |
-| POST | `/api/schema` | update `CLAUDE.md` |
+| GET | `/api/review/list` | Stale pages |
+| GET | `/api/settings` | Model selector data |
+| GET | `/api/claude/diagnose` | CLI quick check |
+| POST | `/api/ingest` | New source → wiki pages |
+| POST | `/api/query` | Ask the wiki |
+| POST | `/api/query/save` | Save answer as page |
+| POST | `/api/lint` / `/api/lint/fix` | Health check |
+| POST | `/api/reflect` | Meta-analysis |
+| POST | `/api/write` | Writing companion |
+| POST | `/api/compare` | Two-page analysis |
+| POST | `/api/review/refresh` | Refresh a stale page |
+| POST | `/api/slides` | Marp export |
+| POST | `/api/search` | TF-IDF search |
+| POST | `/api/suggest/sources` | What to ingest next |
+| POST | `/api/assistant` | Dashboard helper chatbot |
+| POST | `/api/provenance/fix` | Add missing citations |
+| POST | `/api/index/rebuild` | Force index rebuild |
+| POST | `/api/revert` | Revert an ingest |
+| POST | `/api/page` / `/update` / `/delete` | Page CRUD |
+| POST | `/api/folder` | Create folder |
+| POST | `/api/schema` | Update CLAUDE.md |
+| POST | `/api/settings` | Change Claude model |
+| POST | `/api/obsidian/register` | Add this folder to obsidian.json |
 
----
-
-## Troubleshooting
-
-### "Claude CLI timeout"
-
-Ingest can take several minutes for large sources. Default timeout is **600s (10 min)**. To increase:
-
-```bash
-CLAUDE_TIMEOUT=1200 python dashboard/server.py    # 20 min
-```
-
-When you see this error, the dashboard now shows a **"Run Claude CLI diagnostic"** button. It calls `/api/claude/diagnose` which checks:
-- `claude --version` (installed?)
-- A 30s quick prompt (authenticated? responsive?)
-- Model speed warning if applicable
-
-You can also call it directly:
-```bash
-curl http://localhost:8090/api/claude/diagnose | python3 -m json.tool
-```
-
-### "vault not registered"
-
-Hover the status bar tooltip — it shows your project path vs Obsidian's known vaults. Click the **Register** button to add your project to `obsidian.json` automatically, then restart Obsidian.
-
-### Heavy model slowness
-
-Opus 4.7 is the slowest. For ingestion of large batches, switch to **Sonnet 4.6** or **Haiku 4.5** in the header model dropdown.
-
----
-
-## Environment variables
-
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `CLAUDE_TIMEOUT` | `600` | Max seconds for Claude CLI calls (Ingest/Query/Lint) |
-| `CLAUDE_QUICK_TIMEOUT` | `30` | Max seconds for diagnostic quick test |
-| `CLAUDE_TOOLS` | `Edit,Write,Read,Glob,Grep` | Allowed tools for `claude -p --allowedTools` |
-
----
-
-## CLI usage (optional)
-
-Everything in the dashboard also works from the terminal:
-
-```bash
-claude                                # interactive
-"Ingest raw/some-article.md"
-"What is Self-Attention?"
-"Lint the wiki"
-"Reflect on the last 10 ingests"
-```
+</details>
 
 ---
 
@@ -266,6 +310,15 @@ claude                                # interactive
 
 ---
 
-## License
+## Credits
 
-MIT
+- **Pattern**: [Andrej Karpathy](https://github.com/karpathy) — *[LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f)*.
+- **Ancestor**: [Vannevar Bush, "As We May Think"](https://en.wikipedia.org/wiki/As_We_May_Think), 1945.
+- **Built with**: [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
+
+---
+
+<div align="center">
+<br/>
+<sub>MIT License · <a href="README-ko.md">한국어 README</a></sub>
+</div>
