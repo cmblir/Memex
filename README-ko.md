@@ -205,6 +205,46 @@ CLAUDE.md                스키마
 
 ---
 
+## 트러블슈팅
+
+### "Claude CLI timeout"
+
+큰 소스의 Ingest는 수 분이 걸릴 수 있습니다. 기본 timeout은 **600초(10분)**. 늘리려면:
+
+```bash
+CLAUDE_TIMEOUT=1200 python dashboard/server.py    # 20분
+```
+
+이 에러가 보이면 대시보드에 **"Claude CLI 진단 실행"** 버튼이 나타납니다. `/api/claude/diagnose`를 호출해 다음을 점검:
+- `claude --version` (설치 여부)
+- 30초 빠른 prompt (인증됨? 응답함?)
+- 무거운 모델일 경우 경고
+
+직접 호출도 가능:
+```bash
+curl http://localhost:8090/api/claude/diagnose | python3 -m json.tool
+```
+
+### "vault not registered"
+
+상태 바에 hover하면 프로젝트 경로 vs Obsidian이 알고 있는 vault가 표시됩니다. **Register** 버튼을 누르면 `obsidian.json`에 자동 추가되고, Obsidian을 재시작하면 인식됩니다.
+
+### 무거운 모델로 인한 느림
+
+Opus 4.7이 가장 느립니다. 대량 수집 시 헤더의 모델 드롭다운에서 **Sonnet 4.6** 또는 **Haiku 4.5**로 전환하세요.
+
+---
+
+## 환경 변수
+
+| 변수 | 기본값 | 용도 |
+|------|-------|------|
+| `CLAUDE_TIMEOUT` | `600` | Claude CLI 호출 최대 초 (Ingest/Query/Lint) |
+| `CLAUDE_QUICK_TIMEOUT` | `30` | 진단용 빠른 테스트 최대 초 |
+| `CLAUDE_TOOLS` | `Edit,Write,Read,Glob,Grep` | `claude -p --allowedTools` 허용 도구 |
+
+---
+
 ## CLI 사용 (선택)
 
 대시보드의 모든 기능은 터미널에서도 작동합니다:

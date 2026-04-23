@@ -34,8 +34,11 @@ if not _claude:
             if _claude:
                 break
 
-CLAUDE_TOOLS = "Edit,Write,Read,Glob,Grep"
-CLAUDE_TIMEOUT = 180
+CLAUDE_TOOLS = os.environ.get("CLAUDE_TOOLS", "Edit,Write,Read,Glob,Grep")
+# 환경변수로 조정 가능. 기본 600초(10분) — Ingest는 페이지 10+개 생성 시 오래 걸림.
+CLAUDE_TIMEOUT = int(os.environ.get("CLAUDE_TIMEOUT", "600"))
+# 짧은 진단용 timeout
+CLAUDE_QUICK_TIMEOUT = int(os.environ.get("CLAUDE_QUICK_TIMEOUT", "30"))
 
 # ─── 런타임 설정 (모델 등) ───
 
@@ -278,19 +281,32 @@ def extract_links(body):
     return sorted({m.group(1).strip() + (".md" if not m.group(1).strip().endswith(".md") else "") for m in WIKILINK_RE.finditer(body)})
 
 
-def run_claude(prompt):
+def _timeout_hint():
+    """timeout 발생 시 사용자에게 보여줄 자세한 힌트"""
+    return (
+        f"Claude CLI timeout ({CLAUDE_TIMEOUT}s). 가능한 원인 + 해결:\n"
+        f"  1. Claude CLI 인증 안 됨 → 터미널에서 'claude' 직접 실행해 로그인 확인\n"
+        f"  2. 모델이 너무 무거움 → 헤더 모델 드롭다운에서 Sonnet/Haiku로 전환\n"
+        f"  3. 작업 자체가 큼 → 환경변수 CLAUDE_TIMEOUT=1200 으로 서버 재시작\n"
+        f"  4. /api/claude/diagnose 로 빠른 점검 가능"
+    )
+
+
+def run_claude(prompt, timeout=None):
     """claude -p 실행 → (ok, output, error)"""
+    t = timeout or CLAUDE_TIMEOUT
     try:
         r = subprocess.run(
             ["claude", "-p", "--allowedTools", CLAUDE_TOOLS] + _claude_model_args() + ["--output-format", "text", prompt],
-            capture_output=True, text=True, timeout=CLAUDE_TIMEOUT,
+            capture_output=True, text=True, timeout=t,
             cwd=str(PROJECT_ROOT),
         )
-        return (r.returncode == 0, r.stdout[:4000], r.stderr[:500] if r.returncode != 0 else "")
+        err = r.stderr[:500] if r.returncode != 0 else ""
+        return (r.returncode == 0, r.stdout[:4000], err)
     except subprocess.TimeoutExpired:
-        return (False, "", f"Claude CLI timeout ({CLAUDE_TIMEOUT}s)")
+        return (False, "", _timeout_hint())
     except FileNotFoundError:
-        return (False, "", "claude CLI not found")
+        return (False, "", "claude CLI not found in PATH. Install: npm install -g @anthropic-ai/claude-code")
 
 
 def run_claude_tracked(prompt):
@@ -304,9 +320,9 @@ def run_claude_tracked(prompt):
             cwd=str(PROJECT_ROOT),
         )
     except subprocess.TimeoutExpired:
-        return (False, "", f"Claude CLI timeout ({CLAUDE_TIMEOUT}s)", [], {})
+        return (False, "", _timeout_hint(), [], {})
     except FileNotFoundError:
-        return (False, "", "claude CLI not found", [], {})
+        return (False, "", "claude CLI not found in PATH. Install: npm install -g @anthropic-ai/claude-code", [], {})
 
     files_read = []
     answer = ""
@@ -568,6 +584,74 @@ def check_status():
         "claude": {"connected": claude_ok, "version": claude_ver},
         "obsidian": _read_obsidian_facts(),
     }
+
+
+def diagnose_claude():
+    """Claude CLI를 빠르게 점검 — 설치, 인증, 모델 응답 시간"""
+    result = {
+        "cli_installed": False,
+        "version": "",
+        "auth_ok": None,
+        "model": SETTINGS.get("model", "default"),
+        "model_args": _claude_model_args(),
+        "quick_test_seconds": None,
+        "quick_test_ok": False,
+        "quick_test_output": "",
+        "error": "",
+        "config_timeout": CLAUDE_TIMEOUT,
+        "advice": [],
+    }
+
+    # 1. 버전 확인
+    try:
+        r = subprocess.run(["claude", "--version"], capture_output=True, text=True, timeout=10)
+        if r.returncode == 0:
+            result["cli_installed"] = True
+            result["version"] = r.stdout.strip().split("\n")[0]
+        else:
+            result["error"] = r.stderr[:200] or "claude --version 실패"
+    except FileNotFoundError:
+        result["error"] = "claude CLI 미설치. npm install -g @anthropic-ai/claude-code"
+        result["advice"].append("Install Claude CLI: npm install -g @anthropic-ai/claude-code")
+        return result
+    except subprocess.TimeoutExpired:
+        result["error"] = "claude --version timeout"
+        return result
+
+    if not result["cli_installed"]:
+        return result
+
+    # 2. 짧은 prompt로 응답 시간 측정 (인증 + 모델 접근 동시 확인)
+    try:
+        t0 = time.time()
+        r = subprocess.run(
+            ["claude", "-p"] + _claude_model_args() + ["--output-format", "text", "Reply with the single word OK."],
+            capture_output=True, text=True, timeout=CLAUDE_QUICK_TIMEOUT,
+            cwd=str(PROJECT_ROOT),
+        )
+        elapsed = time.time() - t0
+        result["quick_test_seconds"] = round(elapsed, 1)
+        result["quick_test_ok"] = r.returncode == 0
+        result["quick_test_output"] = (r.stdout or r.stderr).strip()[:200]
+        result["auth_ok"] = r.returncode == 0
+        if r.returncode != 0:
+            err = (r.stderr or "").lower()
+            if "auth" in err or "login" in err or "unauthorized" in err:
+                result["advice"].append("Claude CLI 인증 필요. 터미널에서 'claude' 실행 후 로그인.")
+            else:
+                result["advice"].append(f"Claude 응답 실패: {(r.stderr or '')[:200]}")
+        if elapsed > 15:
+            result["advice"].append(f"응답이 느립니다 ({elapsed:.1f}s). Sonnet/Haiku로 모델 변경 권장.")
+    except subprocess.TimeoutExpired:
+        result["auth_ok"] = False
+        result["error"] = f"빠른 진단도 timeout ({CLAUDE_QUICK_TIMEOUT}s)"
+        result["advice"].append("Claude CLI가 응답하지 않습니다. 터미널에서 'claude' 직접 실행해 인증/네트워크 확인.")
+
+    # 3. 무거운 모델 사용 시 권장
+    if SETTINGS.get("model") == "claude-opus-4-7":
+        result["advice"].append("Opus 4.7은 가장 느립니다. Ingest처럼 큰 작업은 Sonnet 4.6 권장.")
+
+    return result
 
 
 def register_obsidian_vault():
@@ -1466,6 +1550,8 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._json(get_strategy(WIKI_DIR))
             if path == "/api/raw/integrity":
                 return self._json(check_raw_integrity())
+            if path == "/api/claude/diagnose":
+                return self._json(diagnose_claude())
             if path == "/api/review/list":
                 return self._json(do_review_list())
             if path == "/api/settings":

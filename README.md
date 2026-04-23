@@ -205,6 +205,46 @@ CLAUDE.md                schema
 
 ---
 
+## Troubleshooting
+
+### "Claude CLI timeout"
+
+Ingest can take several minutes for large sources. Default timeout is **600s (10 min)**. To increase:
+
+```bash
+CLAUDE_TIMEOUT=1200 python dashboard/server.py    # 20 min
+```
+
+When you see this error, the dashboard now shows a **"Run Claude CLI diagnostic"** button. It calls `/api/claude/diagnose` which checks:
+- `claude --version` (installed?)
+- A 30s quick prompt (authenticated? responsive?)
+- Model speed warning if applicable
+
+You can also call it directly:
+```bash
+curl http://localhost:8090/api/claude/diagnose | python3 -m json.tool
+```
+
+### "vault not registered"
+
+Hover the status bar tooltip — it shows your project path vs Obsidian's known vaults. Click the **Register** button to add your project to `obsidian.json` automatically, then restart Obsidian.
+
+### Heavy model slowness
+
+Opus 4.7 is the slowest. For ingestion of large batches, switch to **Sonnet 4.6** or **Haiku 4.5** in the header model dropdown.
+
+---
+
+## Environment variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `CLAUDE_TIMEOUT` | `600` | Max seconds for Claude CLI calls (Ingest/Query/Lint) |
+| `CLAUDE_QUICK_TIMEOUT` | `30` | Max seconds for diagnostic quick test |
+| `CLAUDE_TOOLS` | `Edit,Write,Read,Glob,Grep` | Allowed tools for `claude -p --allowedTools` |
+
+---
+
 ## CLI usage (optional)
 
 Everything in the dashboard also works from the terminal:

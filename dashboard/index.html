@@ -547,7 +547,7 @@ const I18N={
     ingest_title:'Ingest Source',
     ingest_desc:'Paste content and click Ingest. It will be saved to raw/ and Claude will generate wiki pages.',
     field_title:'Title', field_content:'Content (Markdown)', field_folder:'Target Folder',
-    ingest_btn:'Ingest with Claude', ingest_processing:'Calling Claude CLI... (up to 3 min)',
+    ingest_btn:'Ingest with Claude', ingest_processing:'Calling Claude CLI...',
     ingest_done:'Ingest Complete',
     query_title:'Query', query_desc:'Ask questions against the accumulated wiki. Claude finds relevant pages and synthesizes an answer.',
     field_question:'Question', query_btn:'Ask Claude', query_processing:'Claude is searching the wiki...',
@@ -628,7 +628,7 @@ const I18N={
     ingest_title:'새 소스 수집',
     ingest_desc:'문서 내용을 붙여넣고 수집을 실행하면, 원본은 raw/ 폴더에 보존되고 Claude가 관련 위키 페이지를 만들어 줍니다.',
     field_title:'제목', field_content:'내용 (Markdown)', field_folder:'저장할 폴더',
-    ingest_btn:'Claude로 수집하기', ingest_processing:'Claude가 수집 중입니다... (최대 3분)',
+    ingest_btn:'Claude로 수집하기', ingest_processing:'Claude가 수집 중입니다...',
     ingest_done:'수집 완료',
     query_title:'위키에 질문하기',
     query_desc:'지금까지 쌓인 위키를 근거로 Claude가 관련 페이지를 찾아 인용과 함께 답변합니다.',
@@ -1379,18 +1379,62 @@ async function doIngest(){
   var ttl=document.getElementById('ingestTitle').value.trim(),ct=document.getElementById('ingestContent').value.trim(),f=document.getElementById('ingestFolder').value;
   if(!ttl||!ct){alert(t('err_title_required'));return;}
   var btn=document.getElementById('ingestBtn'),res=document.getElementById('ingestResult');
-  btn.disabled=true;btn.textContent=t('ingest_processing');res.className='result-box info';res.textContent=t('ingest_processing');
+  btn.disabled=true;btn.textContent=t('ingest_processing');res.className='result-box info';
+
+  // elapsed timer
+  var t0=Date.now();
+  function fmt(s){var m=Math.floor(s/60),sec=Math.floor(s%60);return m+':'+(sec<10?'0':'')+sec;}
+  function update(){
+    var s=(Date.now()-t0)/1000;
+    var msg=t('ingest_processing')+' '+fmt(s)+(LANG==='ko'?'  · 큰 소스는 5~10분 걸릴 수 있어요':'  · large sources can take 5-10 min');
+    res.textContent=msg;
+  }
+  update();
+  var timer=setInterval(update,1000);
+
   try{
     var r=await fetch('/api/ingest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:ttl,content:ct,folder:f})});
     var d=await r.json();
+    clearInterval(timer);
     if(d.ok){
       await Promise.all([loadWiki(),loadFolders()]);renderStats();renderSidebar();
       showIngestResult(d);
     }else{
-      res.className='result-box err';res.textContent='Error: '+d.error+'\n\n'+(d.claude_output||'');
+      var errText=d.error||'Unknown error';
+      var html='<div style="white-space:pre-wrap">'+esc(errText)+'</div>';
+      // timeout 또는 연결 문제일 때 진단 버튼 추가
+      if(errText.toLowerCase().indexOf('timeout')>=0||errText.toLowerCase().indexOf('not found')>=0){
+        html+='<div style="margin-top:12px"><button class="btn btn-outline" onclick="runClaudeDiagnose()">'+(LANG==='ko'?'Claude CLI 진단 실행':'Run Claude CLI diagnostic')+'</button></div>';
+      }
+      if(d.claude_output)html+='<div style="margin-top:8px;font-size:11px;opacity:.7">'+esc(d.claude_output)+'</div>';
+      res.className='result-box err';
+      res.innerHTML=html;
       btn.disabled=false;btn.textContent=t('ingest_btn');
     }
-  }catch(e){res.className='result-box err';res.textContent=t('err_network')+e.message;btn.disabled=false;btn.textContent=t('ingest_btn');}
+  }catch(e){
+    clearInterval(timer);
+    res.className='result-box err';res.textContent=t('err_network')+e.message;
+    btn.disabled=false;btn.textContent=t('ingest_btn');
+  }
+}
+
+async function runClaudeDiagnose(){
+  toast(LANG==='ko'?'Claude CLI 점검 중...':'Diagnosing Claude CLI...','info');
+  try{
+    var r=await fetch('/api/claude/diagnose');var d=await r.json();
+    var lines=[];
+    lines.push('CLI installed: '+(d.cli_installed?'✓':'✗'));
+    if(d.version)lines.push('Version: '+d.version);
+    lines.push('Model: '+d.model);
+    if(d.quick_test_seconds!==null){
+      lines.push('Quick test: '+(d.quick_test_ok?'✓':'✗')+' ('+d.quick_test_seconds+'s)');
+      if(d.quick_test_output)lines.push('  → '+d.quick_test_output);
+    }
+    if(d.error)lines.push('Error: '+d.error);
+    if(d.advice&&d.advice.length){lines.push('');lines.push((LANG==='ko'?'권장사항:':'Advice:'));d.advice.forEach(function(a){lines.push('  • '+a);});}
+    var res=document.getElementById('ingestResult');
+    if(res){res.className='result-box info';res.innerHTML='<div style="white-space:pre-wrap;font-family:var(--mono)">'+esc(lines.join('\n'))+'</div>';}
+  }catch(e){toast((LANG==='ko'?'진단 실패: ':'Diagnose failed: ')+e.message,'err');}
 }
 
 function showIngestResult(d){
