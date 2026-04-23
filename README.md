@@ -271,22 +271,87 @@ This is Python's empty-JSON error. Fixed — all endpoints now return valid JSON
 ## Repository layout
 
 ```
-raw/                       Immutable sources
-wiki/                      Claude-maintained pages
+raw/                       (legacy) Immutable sources — moved under a project on migration
+wiki/                      (legacy) Claude-maintained pages
   index.md                 Content catalog (auto flat/hierarchical)
   log.md                   Activity timeline
   overview.md              Stats + coverage areas
 ingest-reports/            One WHY report per ingest
 reflect-reports/           Weekly meta-analyses
+projects/                  Multi-project root (see section below)
+  <slug>/
+    CLAUDE.md              Project schema
+    .settings.json         Per-project model, etc.
+    wiki/                  Project wiki (sources/entities/concepts/...)
+    raw/                   Project sources
+    ingest-reports/, reflect-reports/, plans/, query-log.jsonl
+projects.json              Project registry (active + list)
+templates/                 Project templates (generic + variants)
+plans/                     Work queue / backlog / blocked
+logs/                      Autonomous-mode session logs
 dashboard/
   server.py                Zero-dep API server
+  project_registry.py      Project resolver + registry
   index.html               Single-file dashboard UI
   provenance.py            Citation parsing + coverage
   index_strategy.py        Adaptive indexing
   claude_character.svg     The floating helper
-CLAUDE.md                  Schema (the rules Claude follows)
+CLAUDE.md                  Root common schema
 .obsidian/                 Pre-configured vault
 ```
+
+---
+
+## Multi-project
+
+Run multiple independent topics (projects) from a single dashboard. Each project has its own `wiki/ raw/ CLAUDE.md .settings.json`, with independently configurable model, template, and folder structure.
+
+**In the dashboard**
+
+- Header dropdown to switch the active project (Cmd/Ctrl+P to focus)
+- `+` button opens the New Project modal (title / slug / description / template / model)
+- `×` button moves the current project to `projects/.trash/` (soft delete; files preserved)
+- Switching scopes every subsequent action (Ingest / Query / Lint / Write / Compare / ...) to that project's `raw/` and `wiki/`
+
+**Templates**
+
+Choosing a template at creation time automatically scaffolds `wiki/` subfolders:
+
+| Template | Default folders |
+|---|---|
+| generic | `sources entities concepts techniques analyses` |
+| llm-research | `sources models techniques concepts entities benchmarks analyses` |
+| reading-log | `sources authors ideas quotes reviews` |
+| personal-notes | `daily topics people projects` |
+
+Template `CLAUDE.md` files live at `templates/<name>/CLAUDE.md` and are copied (with `{{TOPIC}}` / `{{PURPOSE}}` substitution) into the new project.
+
+**API (available from the command line too)**
+
+```bash
+# List projects + active
+curl http://localhost:8090/api/projects
+
+# Create
+curl -X POST http://localhost:8090/api/projects/create \
+  -H 'Content-Type: application/json' \
+  -d '{"slug":"ml-papers","title":"ML Papers","description":"papers",
+       "model":"claude-sonnet-4-6","template":"llm-research"}'
+
+# Switch
+curl -X POST http://localhost:8090/api/projects/switch \
+  -H 'Content-Type: application/json' -d '{"slug":"ml-papers"}'
+
+# Scoped calls
+curl "http://localhost:8090/api/wiki?project=ml-papers"
+curl -X POST http://localhost:8090/api/ingest \
+  -H 'Content-Type: application/json' \
+  -d '{"project":"ml-papers","title":"...","content":"..."}'
+```
+
+**Legacy compatibility**
+
+If `projects.json` is missing or empty, the server runs in legacy mode — treating the root `wiki/ raw/ CLAUDE.md` as the default project. Existing setups keep working unchanged until you create your first project.
 
 ---
 
