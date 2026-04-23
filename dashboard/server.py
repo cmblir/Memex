@@ -570,6 +570,87 @@ def check_status():
     }
 
 
+def register_obsidian_vault():
+    """현재 프로젝트 폴더를 Obsidian config에 vault로 등록.
+
+    obsidian.json의 vaults 딕셔너리에 이 프로젝트의 엔트리를 추가한다.
+    이미 등록되어 있으면 open 플래그만 true로 설정.
+    Obsidian이 실행 중일 수 있어 config를 덮어쓸 때는 조심스럽게.
+    """
+    facts = _read_obsidian_facts()
+    project_path = facts["project_path"]
+
+    # config 경로 결정 (없으면 생성)
+    home = Path.home()
+    candidates = [
+        home / "Library/Application Support/obsidian/obsidian.json",
+        home / ".config/obsidian/obsidian.json",
+        home / ".var/app/md.obsidian.Obsidian/config/obsidian/obsidian.json",
+        home / "AppData/Roaming/obsidian/obsidian.json",
+        home / "AppData/Roaming/Obsidian/obsidian.json",
+    ]
+    config_path = facts.get("config_path")
+    if config_path:
+        config_path = Path(config_path)
+    else:
+        # 존재하는 것 중 첫 번째. 없으면 OS 기본 경로에 생성
+        config_path = next((p for p in candidates if p.parent.exists()), None)
+        if not config_path:
+            # macOS 기본으로 디렉토리 생성 시도
+            default = candidates[0] if sys.platform == "darwin" else (
+                candidates[3] if sys.platform == "win32" else candidates[1]
+            )
+            default.parent.mkdir(parents=True, exist_ok=True)
+            config_path = default
+
+    # 기존 config 읽기
+    cfg = {"vaults": {}}
+    if config_path.exists():
+        try:
+            cfg = json.loads(config_path.read_text("utf-8")) or {"vaults": {}}
+        except Exception as e:
+            return {"ok": False, "error": f"config parse error: {e}"}
+
+    if "vaults" not in cfg or not isinstance(cfg["vaults"], dict):
+        cfg["vaults"] = {}
+
+    # 이미 등록되어 있는지 확인
+    existing_id = None
+    for vid, info in cfg["vaults"].items():
+        if _paths_match(info.get("path", ""), project_path):
+            existing_id = vid
+            break
+
+    import secrets
+    if existing_id:
+        # open 플래그만 켜기
+        cfg["vaults"][existing_id]["open"] = True
+        cfg["vaults"][existing_id]["ts"] = int(time.time() * 1000)
+        action = "already_registered"
+    else:
+        # 신규 등록
+        vault_id = secrets.token_hex(8)  # 16자 hex
+        cfg["vaults"][vault_id] = {
+            "path": project_path,
+            "ts": int(time.time() * 1000),
+            "open": True,
+        }
+        action = "registered"
+
+    try:
+        config_path.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
+    except Exception as e:
+        return {"ok": False, "error": f"config write error: {e}"}
+
+    return {
+        "ok": True,
+        "action": action,
+        "config_path": str(config_path),
+        "project_path": project_path,
+        "restart_hint": "Obsidian을 재시작(또는 실행)하면 vault가 목록에 나타납니다.",
+    }
+
+
 # ─── operations ───
 
 def _snapshot_wiki():
@@ -1463,6 +1544,8 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._json(do_search(body.get("query", ""), body.get("top_k", 10)))
             if path == "/api/suggest/sources":
                 return self._json(do_suggest_sources())
+            if path == "/api/obsidian/register":
+                return self._json(register_obsidian_vault())
             if path == "/api/assistant":
                 return self._json(do_assistant_chat(
                     body.get("question", ""),

@@ -131,7 +131,9 @@ header h1 .logo-mark span{transform:rotate(-45deg);color:var(--text)}
 
 /* ── Status bar ── */
 .status-bar{border-top:1px solid var(--border);padding:12px 16px;display:flex;flex-direction:column;gap:6px;font-size:11px;background:var(--bg2)}
-.status-row{display:flex;align-items:center;gap:8px}
+.status-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.status-action{font-size:10px;padding:2px 8px;background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--muted);cursor:pointer;transition:all var(--d-fast);margin-left:4px}
+.status-action:hover{color:var(--text);border-color:var(--text);background:var(--bg3)}
 .status-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;transition:all var(--d-med)}
 .status-dot.ok{background:var(--green);box-shadow:0 0 8px rgba(74,222,128,0.5)}
 .status-dot.err{background:var(--red);box-shadow:0 0 8px rgba(248,113,113,0.4)}
@@ -1053,28 +1055,40 @@ async function checkStatus(){
     var o=s.obsidian||{};
     var label='';
     var tip='';
+    var registerBtn='';
     if(!o.process_running){
       label='off';
-      tip='Obsidian 프로세스가 실행되지 않음';
+      tip=LANG==='ko'?'Obsidian 프로세스가 실행되지 않음':'Obsidian process not running';
     }else if(!o.config_path){
       label='on · config not found';
-      tip='Obsidian은 실행 중이지만 config 파일을 찾을 수 없습니다. Obsidian을 한 번이라도 실행하여 config가 생성되도록 하세요.';
+      tip=LANG==='ko'?'Obsidian 실행 중이지만 config 파일이 없음. 한 번이라도 Obsidian을 실행하세요.':'Obsidian is running but config file not found. Run Obsidian at least once.';
     }else if(!o.vault_registered){
       label='on · vault not registered';
       var registered=(o.registered_vaults||[]).join(' | ')||'(none)';
-      tip='이 폴더가 Obsidian에 vault로 등록되지 않음.\n프로젝트 경로: '+(o.project_path||'?')+'\n등록된 vault: '+registered+'\n\n해결: Obsidian에서 "Open folder as vault" → 이 폴더 선택';
+      tip=LANG==='ko'
+        ?'이 폴더가 Obsidian에 vault로 등록되지 않음.\n프로젝트 경로: '+(o.project_path||'?')+'\n등록된 vault: '+registered+'\n\n아래 "Register" 버튼을 누르면 자동 등록됩니다.'
+        :'This folder is not registered as a vault in Obsidian.\nProject: '+(o.project_path||'?')+'\nRegistered: '+registered+'\n\nClick "Register" below to add it automatically.';
+      registerBtn=' <button class="status-action" onclick="registerObsidianVault()">'+(LANG==='ko'?'Register':'Register')+'</button>';
     }else{
       label='on · vault_open=' + (o.vault_open?'true':'false');
       if(!o.vault_open){
-        tip='이 폴더는 등록되어 있지만 현재 열려있지 않습니다. Obsidian에서 vault 전환 또는 실행하세요.';
+        tip=LANG==='ko'?'등록되어 있지만 현재 열려있지 않음. Obsidian에서 vault 전환.':'Registered but not currently open. Switch vault in Obsidian.';
       }else{
-        tip='연결 정상';
+        tip=LANG==='ko'?'연결 정상':'Connected';
       }
     }
     var connected=!!(o.process_running && o.vault_registered && o.vault_open);
     setDot('dotObsidian','lblObsidian',connected,label);
     var lbl=document.getElementById('lblObsidian');
-    if(lbl&&lbl.parentElement)lbl.parentElement.title=tip;
+    if(lbl&&lbl.parentElement){
+      lbl.parentElement.title=tip;
+      // Register 버튼 부착 (vault not registered일 때만)
+      var existing=lbl.parentElement.querySelector('.status-action');
+      if(existing)existing.remove();
+      if(registerBtn){
+        lbl.parentElement.insertAdjacentHTML('beforeend',registerBtn);
+      }
+    }
   }catch(e){
     setDot('dotClaude','lblClaude',false,'');
     setDot('dotObsidian','lblObsidian',false,'');
@@ -1088,6 +1102,27 @@ async function pollChanges(){
   }catch(e){}
 }
 function setDot(did,lid,ok,txt){document.getElementById(did).className='status-dot '+(ok?'ok':'err');document.getElementById(lid).textContent=txt;}
+
+async function registerObsidianVault(){
+  var btn=event&&event.target?event.target:null;
+  if(btn){btn.disabled=true;btn.textContent='...';}
+  try{
+    var r=await fetch('/api/obsidian/register',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+    var d=await r.json();
+    if(d.ok){
+      var msg=d.action==='already_registered'
+        ?(LANG==='ko'?'이미 등록됨 — open 플래그 활성화':'Already registered — opened')
+        :(LANG==='ko'?'등록 완료! Obsidian을 재시작하면 목록에 나타납니다.':'Registered! Restart Obsidian to see it.');
+      toast(msg,'ok');
+      setTimeout(checkStatus,500);
+    }else{
+      toast((LANG==='ko'?'등록 실패: ':'Register failed: ')+(d.error||''),'err');
+    }
+  }catch(e){
+    toast((LANG==='ko'?'네트워크 오류: ':'Network error: ')+e.message,'err');
+  }
+  if(btn){btn.disabled=false;btn.textContent='Register';}
+}
 
 // ─── Render ───
 function render(){if(!D)return;renderStats();renderSidebar();if(!cur){const ov=D.pages.find(p=>p.filename==='overview.md');if(ov)showPage('overview.md');else showGuide();}}
