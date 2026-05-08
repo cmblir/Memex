@@ -32,7 +32,7 @@ Legend: `[ ]` todo · `[x]` done · `[B]` blocked (see BLOCKED.md)
 - [x] S5.1  verified: 2026-05-09 ef45ca8
 - [x] S5.2  verified: 2026-05-09 c762bae
 - [x] S5.3  verified: 2026-05-09 1885c37
-- [ ] S5.4
+- [x] S5.4  verified: 2026-05-09 6cb8c84
 
 ## S6 — Graph view
 - [ ] S6.1
