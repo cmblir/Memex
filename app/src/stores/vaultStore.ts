@@ -104,7 +104,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     }
   },
 
-  async createFile(parentDir, name) {
+  createFile: async (parentDir: string, name: string) => {
     try {
       const path = await ipc.createFile(parentDir, name);
       await get().refreshTree();
@@ -116,7 +116,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     }
   },
 
-  async createFolder(parentDir, name) {
+  createFolder: async (parentDir: string, name: string) => {
     try {
       const path = await ipc.createFolder(parentDir, name);
       await get().refreshTree();
@@ -127,7 +127,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     }
   },
 
-  async deletePath(path) {
+  deletePath: async (path: string) => {
     try {
       await ipc.deletePath(path);
       const active = get().activeFile;
@@ -141,7 +141,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     }
   },
 
-  async renamePath(from, toName) {
+  renamePath: async (from: string, toName: string) => {
     try {
       const newPath = await ipc.renamePath(from, toName);
       const active = get().activeFile;
@@ -157,11 +157,11 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     }
   },
 
-  resolveWikilink(target) {
+  resolveWikilink: (target: string) => {
     return findFileByStem(get().fileTree, target.toLowerCase());
   },
 
-  reset() {
+  reset: () => {
     set({
       currentVault: null,
       fileTree: [],
