@@ -60,18 +60,20 @@ button,input,select,textarea{font-family:inherit;color:inherit}
 button{cursor:pointer;transition:all var(--d-fast) var(--ease);}
 button:active{transform:scale(0.97);}
 
-/* ── Layout ── */
-.app{display:grid;grid-template-columns:var(--side-w) 1fr;grid-template-rows:52px 1fr;height:100vh;position:relative;transition:grid-template-columns var(--d-med) var(--ease)}
-.app.side-hidden{--side-w:0px}
-.app.side-hidden .side{display:none}
+/* ── Layout (Flexbox) ── */
+/* header는 위에 고정, 아래 body-row는 flex로 사이드바 + 메인 나란히. */
+.app{display:flex;flex-direction:column;height:100vh;position:relative;overflow:hidden}
+.body-row{flex:1;display:flex;min-height:0;position:relative}
+.side{flex-shrink:0;width:var(--side-w);overflow:hidden;transition:width var(--d-med) var(--ease)}
+.app.side-hidden .side{width:0}
 
-/* 사이드바 리사이즈 핸들 */
-.side-handle{position:absolute;top:52px;left:var(--side-w);bottom:0;width:6px;transform:translateX(-3px);cursor:ew-resize;z-index:40;transition:background var(--d-fast)}
+/* 사이드바 리사이즈 핸들 — body-row 기준 */
+.side-handle{position:absolute;top:0;left:var(--side-w);bottom:0;width:6px;transform:translateX(-3px);cursor:ew-resize;z-index:40;transition:background var(--d-fast), left var(--d-med) var(--ease)}
 .side-handle:hover,.side-handle.dragging{background:var(--accent-dim)}
 .app.side-hidden .side-handle{display:none}
 
 /* ── Header ── */
-header{grid-column:1/-1;background:var(--bg2);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 18px;gap:12px;backdrop-filter:blur(8px);position:relative;z-index:30}
+header{flex-shrink:0;height:52px;background:var(--bg2);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 18px;gap:12px;backdrop-filter:blur(8px);position:relative;z-index:30}
 header h1{font-size:14px;font-weight:700;white-space:nowrap;letter-spacing:-0.01em;display:flex;align-items:center;gap:8px}
 header h1 .logo-mark{width:18px;height:18px;border:1.5px solid var(--text);border-radius:4px;display:inline-flex;align-items:center;justify-content:center;font-size:10px;transform:rotate(45deg)}
 header h1 .logo-mark span{transform:rotate(-45deg);color:var(--text)}
@@ -79,6 +81,12 @@ header h1 .logo-mark span{transform:rotate(-45deg);color:var(--text)}
 .h-side-toggle:hover{color:var(--text);border-color:var(--border2)}
 .h-model-select{background:var(--bg3);border:1px solid var(--border);border-radius:var(--r-sm);padding:4px 10px;font-size:11px;color:var(--text);cursor:pointer;transition:border-color var(--d-fast)}
 .h-model-select:hover{border-color:var(--border2)}
+.h-project-select{background:var(--bg3);border:1px solid var(--border);border-radius:var(--r-sm);padding:4px 10px;font-size:11px;color:var(--text);cursor:pointer;transition:border-color var(--d-fast);max-width:200px}
+.h-project-select:hover{border-color:var(--border2)}
+.h-proj-group{display:flex;align-items:center;gap:4px}
+.h-icon-btn{background:none;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);padding:4px 8px;font-size:14px;line-height:1;font-family:var(--mono)}
+.h-icon-btn:hover{color:var(--text);border-color:var(--border2);background:var(--bg3)}
+.h-icon-btn.danger:hover{color:var(--red);border-color:var(--red)}
 .hstats{display:flex;gap:14px;margin-left:auto;font-size:11px;color:var(--muted)}
 .hstats b{color:var(--text);font-weight:600;font-variant-numeric:tabular-nums}
 .live-dot{width:6px;height:6px;border-radius:50%;background:var(--green);display:inline-block;animation:pulse 2s ease-in-out infinite;margin-right:4px}
@@ -141,7 +149,7 @@ header h1 .logo-mark span{transform:rotate(-45deg);color:var(--text)}
 .status-label{color:var(--muted)}.status-label b{color:var(--text);font-weight:500;font-family:var(--mono);font-size:10px}
 
 /* ── Main ── */
-main{display:flex;flex-direction:column;overflow:hidden;min-width:0}
+main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
 .toolbar{display:flex;align-items:center;padding:8px 18px;border-bottom:1px solid var(--border);gap:4px;background:var(--bg);position:relative;z-index:20}
 .toolbar .bc{margin-left:auto;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:8px;max-width:50%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .toolbar .bc b{color:var(--text);font-weight:600}
@@ -447,10 +455,7 @@ main{display:flex;flex-direction:column;overflow:hidden;min-width:0}
 
 /* ── 반응형 ── */
 @media (max-width:900px){
-  .app{grid-template-columns:0 1fr}
-  .side{position:absolute;left:0;top:52px;bottom:0;width:280px;z-index:30;box-shadow:var(--shadow-lg)}
-  .app.side-visible .side{display:flex}
-  .app:not(.side-visible) .side{display:none}
+  .side{width:280px}
   .side-handle{display:none}
   .page,.panel,.folder-view{padding:24px 20px}
 }
@@ -461,29 +466,36 @@ main{display:flex;flex-direction:column;overflow:hidden;min-width:0}
   <header>
     <button class="h-side-toggle" onclick="toggleSidebar()" title="Toggle sidebar (Cmd/Ctrl+B)" aria-label="Toggle sidebar">⟷</button>
     <h1><span class="logo-mark"><span>◆</span></span> Karpathy LLM dashboard</h1>
+    <div class="h-proj-group">
+      <select class="h-project-select" id="projectSelect" onchange="onProjectChange()" title="Project (Cmd/Ctrl+P)"></select>
+      <button class="h-icon-btn" onclick="openNewProjectModal()" title="New project" aria-label="New project">+</button>
+      <button class="h-icon-btn danger" id="projDeleteBtn" onclick="deleteCurrentProject()" title="Delete project" aria-label="Delete project" style="display:none">×</button>
+    </div>
     <select class="h-model-select" id="modelSelect" onchange="onModelChange()" title="Claude model"></select>
     <div class="hstats" id="hstats"></div>
     <button id="langToggle" class="h-side-toggle" onclick="toggleLang()" title="Language" style="margin-left:4px;font-family:var(--font);font-weight:600">EN</button>
   </header>
-  <aside class="side">
-    <input type="text" id="q" data-i18n-ph="search_placeholder" placeholder="Search pages...">
-    <div class="tabs">
-      <button class="on" data-t="tree" data-i18n="tab_tree">Tree</button>
-      <button data-t="pages" data-i18n="tab_pages">Pages</button>
-      <button data-t="log" data-i18n="tab_log">Log</button>
-    </div>
-    <div class="slist" id="slist"></div>
-    <div class="status-bar" id="statusBar">
-      <div class="status-row"><div class="status-dot loading" id="dotClaude"></div><span class="status-label"><span data-i18n="status_claude">Claude CLI</span> <b id="lblClaude">checking...</b></span></div>
-      <div class="status-row"><div class="status-dot loading" id="dotObsidian"></div><span class="status-label">Obsidian <b id="lblObsidian">checking...</b></span></div>
-    </div>
-  </aside>
-  <main>
-    <div class="idx-banner" id="idxBanner"><span id="idxBannerText"></span><button class="idx-close" onclick="this.parentElement.classList.remove('show')">&times;</button></div>
-    <div class="toolbar" id="toolbar"></div>
-    <div class="content" id="content"></div>
-  </main>
-  <div class="side-handle" id="sideHandle"></div>
+  <div class="body-row">
+    <aside class="side">
+      <input type="text" id="q" data-i18n-ph="search_placeholder" placeholder="Search pages...">
+      <div class="tabs">
+        <button class="on" data-t="tree" data-i18n="tab_tree">Tree</button>
+        <button data-t="pages" data-i18n="tab_pages">Pages</button>
+        <button data-t="log" data-i18n="tab_log">Log</button>
+      </div>
+      <div class="slist" id="slist"></div>
+      <div class="status-bar" id="statusBar">
+        <div class="status-row"><div class="status-dot loading" id="dotClaude"></div><span class="status-label"><span data-i18n="status_claude">Claude CLI</span> <b id="lblClaude">checking...</b></span></div>
+        <div class="status-row"><div class="status-dot loading" id="dotObsidian"></div><span class="status-label">Obsidian <b id="lblObsidian">checking...</b></span></div>
+      </div>
+    </aside>
+    <main>
+      <div class="idx-banner" id="idxBanner"><span id="idxBannerText"></span><button class="idx-close" onclick="this.parentElement.classList.remove('show')">&times;</button></div>
+      <div class="toolbar" id="toolbar"></div>
+      <div class="content" id="content"></div>
+    </main>
+    <div class="side-handle" id="sideHandle"></div>
+  </div>
 </div>
 
 <div class="toast-wrap" id="toastWrap"></div>
@@ -528,6 +540,26 @@ main{display:flex;flex-direction:column;overflow:hidden;min-width:0}
   <p style="color:var(--muted);font-size:13px;margin-bottom:12px">이 페이지를 삭제합니다. 되돌릴 수 없습니다.</p>
   <p style="font-size:14px"><b id="deletePageName"></b></p>
   <div class="actions"><button onclick="closeModals()">Cancel</button><button class="danger" onclick="confirmDelete()">Delete</button></div>
+</div></div>
+<div class="modal-bg" id="modalNewProject"><div class="modal"><h3>New Project</h3>
+  <p style="color:var(--muted);font-size:13px;margin-bottom:14px">독립된 wiki/raw/CLAUDE.md를 가진 새 주제 프로젝트를 생성합니다.</p>
+  <div class="field"><label>Title</label><input type="text" id="newProjTitle" placeholder="LLM Papers"></div>
+  <div class="field"><label>Slug (선택)</label><input type="text" id="newProjSlug" placeholder="자동 생성됨 (영숫자+하이픈)"></div>
+  <div class="field"><label>Description</label><input type="text" id="newProjDesc" placeholder="이 프로젝트의 목적"></div>
+  <div class="field"><label>Template</label><select id="newProjTemplate" onchange="previewProjectFolders()">
+    <option value="">generic (기본)</option>
+    <option value="llm-research">llm-research</option>
+    <option value="reading-log">reading-log</option>
+    <option value="personal-notes">personal-notes</option>
+  </select></div>
+  <div class="field"><label>권장 폴더 (자동 생성)</label><div id="newProjFolderPreview" style="font-size:11px;color:var(--muted);font-family:var(--mono);padding:8px 10px;background:var(--bg3);border-radius:var(--r-sm);border:1px solid var(--border)">loading...</div></div>
+  <div class="field"><label>Model</label><select id="newProjModel"></select></div>
+  <div class="actions"><button onclick="closeModals()">Cancel</button><button class="primary" onclick="doCreateProject()">Create</button></div>
+</div></div>
+<div class="modal-bg" id="modalDeleteProject"><div class="modal"><h3>Delete Project</h3>
+  <p style="color:var(--muted);font-size:13px;margin-bottom:12px">프로젝트를 <code>projects/.trash/</code>로 이동합니다. 파일은 보존되며 수동으로 복원 가능합니다.</p>
+  <p style="font-size:14px"><b id="deleteProjName"></b></p>
+  <div class="actions"><button onclick="closeModals()">Cancel</button><button class="danger" onclick="confirmDeleteProject()">Delete</button></div>
 </div></div>
 
 <script>
@@ -748,17 +780,13 @@ function applySidebar(){
   var app=document.getElementById('app');
   var hidden=localStorage.getItem(SIDE_HIDDEN_KEY)==='1';
   app.classList.toggle('side-hidden',hidden);
-  if(!hidden){
-    var w=parseInt(localStorage.getItem(SIDE_W_KEY))||280;
-    w=Math.max(220,Math.min(500,w));
-    // .app 자체에 inline으로 설정 (--side-w는 .side-hidden이 override 가능)
-    app.style.setProperty('--side-w',w+'px');
-    var handle=document.getElementById('sideHandle');
-    if(handle)handle.style.left=w+'px';
-  }else{
-    var handle=document.getElementById('sideHandle');
-    if(handle)handle.style.left='';
-  }
+  // --side-w는 항상 사용자 드래그 폭(또는 기본 280). .app.side-hidden .side{width:0}
+  // 규칙이 숨김 처리를 담당하므로 여기서는 값만 기록하면 됨.
+  var w=parseInt(localStorage.getItem(SIDE_W_KEY))||280;
+  w=Math.max(220,Math.min(500,w));
+  app.style.setProperty('--side-w',w+'px');
+  var handle=document.getElementById('sideHandle');
+  if(handle)handle.style.left=(hidden?0:w)+'px';
 }
 function toggleSidebar(){
   var hidden=localStorage.getItem(SIDE_HIDDEN_KEY)==='1';
@@ -795,12 +823,168 @@ document.addEventListener('keydown',function(e){
   }
 });
 
-// ─── Claude 모델 설정 ───
-var MODELS=[], CURRENT_MODEL='default';
+// ─── 프로젝트 + 모델 설정 ───
+var PROJECTS=[], CURRENT_PROJECT=null, MODELS=[], CURRENT_MODEL='default';
+
+// 모든 /api/ 호출에 현재 프로젝트 자동 주입 (기존 fetch 호출 수정 없이 통과)
+// 단, /api/projects/* (프로젝트 CRUD 자체)는 우회.
+const _origFetch = window.fetch.bind(window);
+window.fetch = function(url, opts){
+  opts = opts || {};
+  try{
+    if (typeof url === 'string' && url.startsWith('/api/') && !url.startsWith('/api/projects')) {
+      if (CURRENT_PROJECT && !/[?&]project=/.test(url)) {
+        url += (url.includes('?') ? '&' : '?') + 'project=' + encodeURIComponent(CURRENT_PROJECT);
+      }
+      if (opts.method === 'POST' && opts.body && CURRENT_PROJECT) {
+        try{
+          var parsed = JSON.parse(opts.body);
+          if (parsed && typeof parsed === 'object' && !('project' in parsed)) {
+            parsed.project = CURRENT_PROJECT;
+            opts.body = JSON.stringify(parsed);
+          }
+        }catch(e){/* non-JSON body, skip */}
+      }
+    }
+  }catch(e){}
+  return _origFetch(url, opts);
+};
+
+async function loadProjects(){
+  try{
+    var r = await _origFetch('/api/projects');
+    var d = await r.json();
+    PROJECTS = d.projects || [];
+    CURRENT_PROJECT = d.active || null;
+    var sel = document.getElementById('projectSelect');
+    if (sel){
+      var opts = [];
+      if (d.legacy){
+        opts.push('<option value="">(legacy — 루트 wiki/)</option>');
+      }
+      PROJECTS.forEach(function(p){
+        var selAttr = (p.slug === CURRENT_PROJECT) ? ' selected' : '';
+        opts.push('<option value="'+esc(p.slug)+'"'+selAttr+'>'+esc(p.title)+' ('+esc(p.slug)+')</option>');
+      });
+      if (!opts.length) opts.push('<option value="">(no projects)</option>');
+      sel.innerHTML = opts.join('');
+    }
+    // 삭제 버튼은 프로젝트 선택됐을 때만 노출
+    var del = document.getElementById('projDeleteBtn');
+    if (del) del.style.display = CURRENT_PROJECT ? '' : 'none';
+  }catch(e){}
+}
+
+async function onProjectChange(){
+  var sel = document.getElementById('projectSelect');
+  if (!sel) return;
+  var slug = sel.value;
+  if (slug){
+    try{
+      var r = await _origFetch('/api/projects/switch', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({slug:slug})});
+      var d = await r.json();
+      if (!d.ok){ toast('Switch failed: '+d.error,'err'); return; }
+    }catch(e){ toast('Network error: '+e.message,'err'); return; }
+    CURRENT_PROJECT = slug;
+  } else {
+    CURRENT_PROJECT = null;
+  }
+  var del = document.getElementById('projDeleteBtn');
+  if (del) del.style.display = CURRENT_PROJECT ? '' : 'none';
+  // 전체 뷰 리로드
+  await Promise.all([loadWiki(), loadFolders(), loadSettings(), loadIndexStatus(), loadWikiRatio()]);
+  render();
+  toast('Project: '+(slug||'(legacy)'), 'ok');
+}
+
+var TEMPLATE_DEFS = null;
+async function loadTemplates(){
+  if (TEMPLATE_DEFS) return TEMPLATE_DEFS;
+  try{
+    var r = await _origFetch('/api/templates');
+    var d = await r.json();
+    TEMPLATE_DEFS = d.templates || [];
+  }catch(e){ TEMPLATE_DEFS = []; }
+  return TEMPLATE_DEFS;
+}
+function previewProjectFolders(){
+  var key = document.getElementById('newProjTemplate').value;
+  var preview = document.getElementById('newProjFolderPreview');
+  if (!preview || !TEMPLATE_DEFS) return;
+  var tmpl = TEMPLATE_DEFS.find(function(t){return t.name===key;});
+  var folders = (tmpl && tmpl.folders) || [];
+  preview.textContent = folders.length ? folders.map(function(f){return 'wiki/'+f+'/';}).join('  ·  ') : '(없음)';
+}
+
+async function openNewProjectModal(){
+  var ms = document.getElementById('newProjModel');
+  if (ms) ms.innerHTML = MODELS.map(function(m){
+    return '<option value="'+m.id+'">'+m.label+'</option>';
+  }).join('');
+  document.getElementById('newProjTitle').value='';
+  document.getElementById('newProjSlug').value='';
+  document.getElementById('newProjDesc').value='';
+  document.getElementById('newProjTemplate').value='';
+  await loadTemplates();
+  previewProjectFolders();
+  document.getElementById('modalNewProject').classList.add('show');
+  setTimeout(function(){document.getElementById('newProjTitle').focus();},50);
+}
+
+async function doCreateProject(){
+  var title=(document.getElementById('newProjTitle').value||'').trim();
+  var slug=(document.getElementById('newProjSlug').value||'').trim();
+  var desc=(document.getElementById('newProjDesc').value||'').trim();
+  var tmpl=document.getElementById('newProjTemplate').value;
+  var model=document.getElementById('newProjModel').value||'default';
+  if (!title){ toast('Title is required','err'); return; }
+  try{
+    var r = await _origFetch('/api/projects/create', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({title:title,slug:slug,description:desc,template:tmpl,model:model})});
+    var d = await r.json();
+    if (!d.ok){ toast('Create failed: '+d.error,'err'); return; }
+    closeModals();
+    toast('Project created: '+d.project.title,'ok');
+    CURRENT_PROJECT = d.project.slug;
+    await loadProjects();
+    await Promise.all([loadWiki(), loadFolders(), loadSettings(), loadIndexStatus(), loadWikiRatio()]);
+    render();
+  }catch(e){ toast('Network error: '+e.message,'err'); }
+}
+
+function deleteCurrentProject(){
+  if (!CURRENT_PROJECT) return;
+  var p = PROJECTS.find(function(x){return x.slug===CURRENT_PROJECT;});
+  if (!p) return;
+  document.getElementById('deleteProjName').textContent = p.title + ' ('+p.slug+')';
+  document.getElementById('modalDeleteProject').classList.add('show');
+}
+
+async function confirmDeleteProject(){
+  if (!CURRENT_PROJECT) return;
+  try{
+    var r = await _origFetch('/api/projects/delete', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({slug:CURRENT_PROJECT, confirm:true})});
+    var d = await r.json();
+    if (!d.ok){ toast('Delete failed: '+d.error,'err'); return; }
+    closeModals();
+    toast('Moved to trash: '+d.moved_to,'ok');
+    CURRENT_PROJECT = null;
+    await loadProjects();
+    // 삭제 후: 다른 active 프로젝트가 있으면 그쪽으로, 없으면 legacy
+    var fresh = await _origFetch('/api/projects').then(function(r){return r.json();});
+    CURRENT_PROJECT = fresh.active || null;
+    var sel = document.getElementById('projectSelect');
+    if (sel) sel.value = CURRENT_PROJECT || '';
+    await Promise.all([loadWiki(), loadFolders(), loadSettings(), loadIndexStatus(), loadWikiRatio()]);
+    render();
+  }catch(e){ toast('Network error: '+e.message,'err'); }
+}
+
 async function loadSettings(){
   try{
     var r=await fetch('/api/settings');var d=await r.json();
-    MODELS=d.models||[];CURRENT_MODEL=(d.settings||{}).model||'default';
+    MODELS=d.models||[];
+    // 프로젝트 있으면 project_model, 레거시면 settings.model
+    CURRENT_MODEL = d.project_model || (d.settings||{}).model || 'default';
     var sel=document.getElementById('modelSelect');if(sel){
       sel.innerHTML=MODELS.map(function(m){
         return '<option value="'+m.id+'"'+(m.id===CURRENT_MODEL?' selected':'')+'>'+m.label+'</option>';
@@ -818,6 +1002,15 @@ async function onModelChange(){
     else{toast('Model change failed: '+d.error,'err');sel.value=CURRENT_MODEL;}
   }catch(e){toast(t('err_network')+e.message,'err');}
 }
+
+// Cmd/Ctrl+P → 프로젝트 선택기 포커스
+document.addEventListener('keydown',function(e){
+  if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='p'){
+    e.preventDefault();
+    var sel=document.getElementById('projectSelect');
+    if(sel) sel.focus();
+  }
+});
 
 // ─── marked callout extension ───
 const renderer=new marked.Renderer();
@@ -838,6 +1031,8 @@ marked.setOptions({renderer});
 // ─── Init ───
 async function init(){
   applyI18n();applySidebar();initSidebarResize();renderToolbar();
+  // 프로젝트 먼저 로드 → CURRENT_PROJECT 설정 후 나머지 fetch가 자동으로 스코프
+  await loadProjects();
   await Promise.all([loadWiki(),loadFolders(),checkStatus(),loadSettings()]);
   render();
   setInterval(checkStatus,15000);setInterval(pollChanges,5000);checkReflectStatus();

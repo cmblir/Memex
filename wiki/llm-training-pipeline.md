@@ -8,8 +8,8 @@ tags:
   - fine-tuning
   - rl
 created: 2026-04-23
-last_updated: 2026-04-23
-source_count: 2
+last_updated: 2026-04-24
+source_count: 3
 confidence: high
 status: active
 ---
@@ -24,7 +24,7 @@ status: active
 
 ## 단계별 구성
 
-1. **토크나이저 학습** — 텍스트를 토큰 시퀀스로 변환하는 어휘(vocabulary) 구축. [[nanochat]]은 65,536 토큰 어휘, Rust 구현.[^src-제목-안드레이-카파시andrej-karpathy의-nanochat-100달러로-만드는-나만의-chatgpt]
+1. **토크나이저 학습** — 텍스트를 토큰 시퀀스로 변환하는 어휘(vocabulary) 구축. LLM에서 가장 대중적으로 쓰이는 알고리즘은 [[byte-pair-encoding|BPE (Byte Pair Encoding)]]로, 원시 바이트에서 시작해 가장 빈번한 쌍을 반복적으로 병합한다.[^src-byte-pair-encoding-bpe] [[nanochat]]은 65,536 토큰 어휘, Rust 구현.[^src-제목-안드레이-카파시andrej-karpathy의-nanochat-100달러로-만드는-나만의-chatgpt]
 
 2. **사전학습(Pretraining)** — 대용량 텍스트 코퍼스(예: FineWeb-EDU)로 다음 토큰을 예측하는 기초 언어 모델 학습.[^src-제목-안드레이-카파시andrej-karpathy의-nanochat-100달러로-만드는-나만의-chatgpt] [[nanogpt|nanoGPT]]는 이 단계까지만 다뤘다.[^src-제목-안드레이-카파시andrej-karpathy의-nanochat-100달러로-만드는-나만의-chatgpt]
 
@@ -45,3 +45,5 @@ status: active
 [^src-제목-안드레이-카파시andrej-karpathy의-nanochat-100달러로-만드는-나만의-chatgpt]: [[source-제목-안드레이-카파시andrej-karpathy의-nanochat-100달러로-만드는-나만의-chatgpt]]
 
 [^src-제목-gpt-1-improving-language-understanding-by-generative-pre-training-2018]: [[source-제목-gpt-1-improving-language-understanding-by-generative-pre-training-2018]]
+
+[^src-byte-pair-encoding-bpe]: [[source-byte-pair-encoding-bpe]]

@@ -13,6 +13,8 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler
 from provenance import build_provenance_graph
 from index_strategy import get_strategy, get_index_instruction, rebuild_index
 from pathlib import Path
+import project_registry
+from project_registry import REGISTRY_FILE
 
 PORT = 8090
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -51,6 +53,9 @@ AVAILABLE_MODELS = [
     {"id": "default", "label": "Default", "desc": "CLI 기본 모델 사용"},
 ]
 
+_ALLOWED_MODEL_IDS = {m["id"] for m in AVAILABLE_MODELS}
+project_registry.set_model_validator(lambda m: m in _ALLOWED_MODEL_IDS)
+
 
 def _load_settings():
     if SETTINGS_FILE.exists():
@@ -78,6 +83,12 @@ def _claude_model_args():
 RAW_ABS = os.path.abspath(str(RAW_DIR))
 
 
+def _resolve_project_body(body):
+    """POST body에서 project slug 추출 → Project. 미지 slug는 KeyError."""
+    slug = (body.get("project") or "").strip() or None
+    return project_registry.get_project(slug)
+
+
 # ─── slug 생성 (한글/유니코드 지원) ───
 
 def make_slug(title):
@@ -95,18 +106,16 @@ def make_slug(title):
 # ─── raw/ 보호 ───
 
 def assert_writable(path):
-    """raw/ 디렉토리 쓰기 차단. raw/는 불변."""
-    abs_path = os.path.abspath(str(path))
-    if abs_path.startswith(RAW_ABS + os.sep) or abs_path == RAW_ABS:
+    """raw/ 디렉토리 쓰기 차단. 레거시 raw + 모든 projects/<slug>/raw/ 불변."""
+    if project_registry.is_protected_raw(path):
         raise PermissionError(f"raw/ is immutable: {path}")
 
 
 def assert_raw_create_only(path):
-    """raw/에 새 파일 생성만 허용 (기존 파일 수정/덮어쓰기 금지)."""
-    abs_path = os.path.abspath(str(path))
-    if not abs_path.startswith(RAW_ABS + os.sep):
+    """어떤 raw/ 안에 새 파일 생성만 허용 (기존 파일 수정/덮어쓰기 금지)."""
+    if not project_registry.is_protected_raw(path):
         return  # raw/ 밖이면 패스
-    if os.path.exists(abs_path):
+    if os.path.exists(str(path)):
         raise PermissionError(f"raw/ file already exists (immutable): {path}")
 
 
@@ -166,36 +175,57 @@ class GitManager:
         )
         return r
 
-    def _stage_all(self):
-        """wiki/ + raw/ + ingest-reports/ 변경사항 스테이징"""
-        self._run("add", "wiki/", "raw/")
-        if (PROJECT_ROOT / "ingest-reports").is_dir():
-            self._run("add", "ingest-reports/")
+    def _stage_all(self, project=None):
+        """프로젝트 범위 변경사항 스테이징 (legacy면 루트 wiki/raw/ingest-reports)."""
+        if project and not project.is_legacy:
+            base = str(project.root.relative_to(PROJECT_ROOT))
+            for sub in ("wiki", "raw", "ingest-reports", "reflect-reports", ".settings.json", "query-log.jsonl", "CLAUDE.md"):
+                p = project.root / sub
+                if p.exists():
+                    self._run("add", f"{base}/{sub}")
+            # 레지스트리 변경도 함께
+            if REGISTRY_FILE.exists():
+                self._run("add", "projects.json")
+        else:
+            self._run("add", "wiki/", "raw/")
+            if (PROJECT_ROOT / "ingest-reports").is_dir():
+                self._run("add", "ingest-reports/")
 
-    def commit_ingest(self, source_name):
+    def _slug_prefix(self, project):
+        if project and not project.is_legacy:
+            return f"({project.slug})"
+        return ""
+
+    def commit_ingest(self, source_name, project=None):
         """ingest 완료 후 커밋. commit hash 반환."""
-        self._stage_all()
-        # 변경이 없으면 스킵
+        self._stage_all(project)
         status = self._run("diff", "--cached", "--name-only")
         files = [f for f in status.stdout.strip().split("\n") if f]
         if not files:
             return {"hash": None, "files": []}
-        msg = f"ingest: {source_name}"
+        msg = f"ingest{self._slug_prefix(project)}: {source_name}"
         self._run("commit", "-m", msg)
         log = self._run("log", "-1", "--format=%H")
         return {"hash": log.stdout.strip(), "files": files}
 
-    def commit_query_save(self, question):
-        self._stage_all()
-        msg = f"query: {question[:80]}"
+    def commit_query_save(self, question, project=None):
+        self._stage_all(project)
+        msg = f"query{self._slug_prefix(project)}: {question[:80]}"
         self._run("commit", "-m", msg)
         log = self._run("log", "-1", "--format=%H")
         return log.stdout.strip()
 
-    def commit_lint_fix(self):
-        self._stage_all()
-        msg = "lint: auto-fix"
+    def commit_lint_fix(self, project=None):
+        self._stage_all(project)
+        msg = f"lint{self._slug_prefix(project)}: auto-fix"
         self._run("commit", "-m", msg)
+        log = self._run("log", "-1", "--format=%H")
+        return log.stdout.strip()
+
+    def commit_generic(self, message, project=None):
+        """임의 작업용 — message에 project prefix 자동 추가 안 함, 호출측이 선택."""
+        self._stage_all(project)
+        self._run("commit", "-m", message)
         log = self._run("log", "-1", "--format=%H")
         return log.stdout.strip()
 
@@ -292,14 +322,25 @@ def _timeout_hint():
     )
 
 
-def run_claude(prompt, timeout=None):
-    """claude -p 실행 → (ok, output, error)"""
+def _model_args_for(project=None):
+    """프로젝트의 model → CLI 인자. 레거시는 전역 SETTINGS 사용."""
+    if project is not None and not project.is_legacy:
+        m = project.model
+        if m and m != "default":
+            return ["--model", m]
+        return []
+    return _claude_model_args()
+
+
+def run_claude(prompt, timeout=None, cwd=None, project=None):
+    """claude -p 실행 → (ok, output, error). cwd는 project.root 권장."""
     t = timeout or CLAUDE_TIMEOUT
+    target_cwd = str(cwd or (project.root if project else PROJECT_ROOT))
     try:
         r = subprocess.run(
-            ["claude", "-p", "--allowedTools", CLAUDE_TOOLS] + _claude_model_args() + ["--output-format", "text", prompt],
+            ["claude", "-p", "--allowedTools", CLAUDE_TOOLS] + _model_args_for(project) + ["--output-format", "text", prompt],
             capture_output=True, text=True, timeout=t,
-            cwd=str(PROJECT_ROOT),
+            cwd=target_cwd,
         )
         err = r.stderr[:500] if r.returncode != 0 else ""
         return (r.returncode == 0, r.stdout[:4000], err)
@@ -309,15 +350,16 @@ def run_claude(prompt, timeout=None):
         return (False, "", "claude CLI not found in PATH. Install: npm install -g @anthropic-ai/claude-code")
 
 
-def run_claude_tracked(prompt):
+def run_claude_tracked(prompt, cwd=None, project=None):
     """claude -p를 stream-json으로 실행하여 Read 호출을 추적.
     → (ok, answer, error, files_read, token_usage)"""
+    target_cwd = str(cwd or (project.root if project else PROJECT_ROOT))
     try:
         r = subprocess.run(
-            ["claude", "-p", "--allowedTools", CLAUDE_TOOLS] + _claude_model_args() +
+            ["claude", "-p", "--allowedTools", CLAUDE_TOOLS] + _model_args_for(project) +
             ["--output-format", "stream-json", "--verbose", prompt],
             capture_output=True, text=True, timeout=CLAUDE_TIMEOUT,
-            cwd=str(PROJECT_ROOT),
+            cwd=target_cwd,
         )
     except subprocess.TimeoutExpired:
         return (False, "", _timeout_hint(), [], {})
@@ -374,7 +416,7 @@ def run_claude_tracked(prompt):
 QUERY_LOG = PROJECT_ROOT / "query-log.jsonl"
 
 
-def _log_query(question, files_read, wiki_ratio, answer_length):
+def _log_query(question, files_read, wiki_ratio, answer_length, query_log=None):
     entry = {
         "timestamp": datetime.now().isoformat(),
         "question": question[:200],
@@ -382,15 +424,18 @@ def _log_query(question, files_read, wiki_ratio, answer_length):
         "wiki_ratio": wiki_ratio,
         "answer_length": answer_length,
     }
-    with open(QUERY_LOG, "a", encoding="utf-8") as f:
+    target = query_log or QUERY_LOG
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with open(target, "a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
-def _get_query_stats(n=20):
+def _get_query_stats(n=20, query_log=None):
     """최근 n개 쿼리의 wiki_ratio 평균"""
-    if not QUERY_LOG.exists():
+    target = query_log or QUERY_LOG
+    if not target.exists():
         return {"avg_wiki_ratio": None, "count": 0}
-    lines = QUERY_LOG.read_text("utf-8").strip().split("\n")
+    lines = target.read_text("utf-8").strip().split("\n")
     recent = []
     for line in reversed(lines):
         if not line:
@@ -410,11 +455,29 @@ def _get_query_stats(n=20):
 
 # ─── wiki data ───
 
-def build_wiki_data():
+def _resolve_project(slug=None):
+    """slug → Project.
+
+    - slug가 빈값/None: active → legacy 순으로 폴백 (project_registry.get_project 기본 동작)
+    - slug가 구체적 값이지만 레지스트리에 없으면 KeyError 전파 (호출측이 404 처리)
+    """
+    return project_registry.get_project(slug or None)
+
+
+def build_wiki_data(project_slug=None):
+    proj = _resolve_project(project_slug)
+    wiki_dir = proj.wiki_dir
+    raw_dir = proj.raw_dir
     pages, nodes, edges = [], [], []
     type_counts, node_ids = {}, set()
-    for md in sorted(WIKI_DIR.rglob("*.md")):
-        rel = md.relative_to(WIKI_DIR)
+    if not wiki_dir.exists():
+        return {
+            "project": proj.slug, "pages": [], "graph": {"nodes": [], "edges": []}, "log": [],
+            "stats": {"total_pages": 0, "raw_sources": 0, "type_counts": {}, "total_links": 0,
+                      "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M")},
+        }
+    for md in sorted(wiki_dir.rglob("*.md")):
+        rel = md.relative_to(wiki_dir)
         filename = str(rel)
         text = md.read_text(encoding="utf-8")
         meta, body = parse_fm(text)
@@ -438,12 +501,13 @@ def build_wiki_data():
             node_ids.add(e["to"])
             nodes.append({"id": e["to"], "label": e["to"].replace(".md", "").replace("-", " ").title(), "type": "missing"})
     log_entries = []
-    lf = WIKI_DIR / "log.md"
+    lf = wiki_dir / "log.md"
     if lf.exists():
         _, lb = parse_fm(lf.read_text("utf-8"))
         log_entries = [{"date": m.group(1), "action": m.group(2), "title": m.group(3)} for m in LOG_ENTRY_RE.finditer(lb)]
-    raw_count = sum(1 for f in RAW_DIR.rglob("*") if f.is_file() and not f.name.startswith(".") and "assets" not in f.parts) if RAW_DIR.exists() else 0
+    raw_count = sum(1 for f in raw_dir.rglob("*") if f.is_file() and not f.name.startswith(".") and "assets" not in f.parts) if raw_dir.exists() else 0
     return {
+        "project": proj.slug,
         "pages": pages,
         "graph": {"nodes": nodes, "edges": edges},
         "log": log_entries,
@@ -451,29 +515,36 @@ def build_wiki_data():
     }
 
 
-def get_folder_tree():
-    tree = {"name": "wiki", "path": "", "children": [], "pages": []}
-    for f in sorted(WIKI_DIR.glob("*.md")):
+def get_folder_tree(project_slug=None):
+    proj = _resolve_project(project_slug)
+    wiki_dir = proj.wiki_dir
+    tree = {"project": proj.slug, "name": "wiki", "path": "", "children": [], "pages": []}
+    if not wiki_dir.exists():
+        return tree
+    for f in sorted(wiki_dir.glob("*.md")):
         tree["pages"].append(f.name)
-    for d in sorted(WIKI_DIR.iterdir()):
+    for d in sorted(wiki_dir.iterdir()):
         if d.is_dir() and not d.name.startswith("."):
             sub = {"name": d.name, "path": d.name, "children": [], "pages": []}
             for f in sorted(d.rglob("*.md")):
-                sub["pages"].append(str(f.relative_to(WIKI_DIR)))
+                sub["pages"].append(str(f.relative_to(wiki_dir)))
             for sd in sorted(d.iterdir()):
                 if sd.is_dir() and not sd.name.startswith("."):
-                    sub["children"].append({"name": sd.name, "path": str(sd.relative_to(WIKI_DIR)), "pages": [str(f.relative_to(WIKI_DIR)) for f in sorted(sd.rglob("*.md"))]})
+                    sub["children"].append({"name": sd.name, "path": str(sd.relative_to(wiki_dir)), "pages": [str(f.relative_to(wiki_dir)) for f in sorted(sd.rglob("*.md"))]})
             tree["children"].append(sub)
     return tree
 
 
-def wiki_hash():
+def wiki_hash(project_slug=None):
     """wiki/ 변경 감지용 간단 해시 — 파일 수 + 총 mtime"""
+    proj = _resolve_project(project_slug)
+    wiki_dir = proj.wiki_dir
     total = 0
     count = 0
-    for md in WIKI_DIR.rglob("*.md"):
-        total += int(md.stat().st_mtime * 1000)
-        count += 1
+    if wiki_dir.exists():
+        for md in wiki_dir.rglob("*.md"):
+            total += int(md.stat().st_mtime * 1000)
+            count += 1
     return f"{count}:{total}"
 
 
@@ -737,11 +808,17 @@ def register_obsidian_vault():
 
 # ─── operations ───
 
-def _snapshot_wiki():
+def _snapshot_wiki(wiki_dir=None):
     """wiki/ 전체 파일의 내용을 dict로 스냅샷"""
+    d = wiki_dir or WIKI_DIR
     snap = {}
-    for md in WIKI_DIR.rglob("*.md"):
-        rel = str(md.relative_to(PROJECT_ROOT))
+    if not d.exists():
+        return snap
+    for md in d.rglob("*.md"):
+        try:
+            rel = str(md.relative_to(PROJECT_ROOT))
+        except ValueError:
+            rel = str(md)
         try:
             snap[rel] = md.read_text("utf-8")
         except Exception:
@@ -770,20 +847,25 @@ def _diff_snapshots(before, after):
     return created, modified
 
 
-def do_ingest(title, content, folder=""):
+def do_ingest(title, content, folder="", project_slug=None):
+    proj = project_registry.get_project(project_slug)
+    raw_dir = proj.raw_dir
+    wiki_dir = proj.wiki_dir
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    wiki_dir.mkdir(parents=True, exist_ok=True)
+
     slug = make_slug(title)
-    raw_path = dedupe_raw_path(RAW_DIR / f"{slug}.md")
+    raw_path = dedupe_raw_path(raw_dir / f"{slug}.md")
     raw_path.write_text(content, encoding="utf-8")
-    slug = raw_path.stem  # dedupe로 변경됐을 수 있으므로 갱신
+    slug = raw_path.stem
 
-    # 1) 스냅샷 before
-    snap_before = _snapshot_wiki()
+    snap_before = _snapshot_wiki(wiki_dir)
 
-    # 2) 프롬프트: ingest + reasoning + report
     ts = datetime.now().strftime("%Y-%m-%d-%H%M")
-    report_path = f"ingest-reports/{ts}-{slug}.md"
+    report_rel = f"ingest-reports/{ts}-{slug}.md"
+    (proj.ingest_reports).mkdir(parents=True, exist_ok=True)
     folder_inst = f" wiki/{folder}/ 폴더 하위에 페이지를 생성해." if folder else ""
-    idx_inst = get_index_instruction(WIKI_DIR)
+    idx_inst = get_index_instruction(wiki_dir)
 
     prompt = f"""{idx_inst}
 중요: raw/ 디렉토리의 파일을 절대 수정/삭제하지 마라. raw/는 불변이다. wiki/에만 쓰기.
@@ -791,7 +873,7 @@ Ingest raw/{slug}.md — 이 소스를 읽고 CLAUDE.md 지침대로 wiki 페이
 
 작업이 끝나면:
 1. 마지막에 왜 이런 판단을 했는지 3~5줄로 요약해 (REASONING: 으로 시작).
-2. {report_path} 파일을 생성해. 형식:
+2. {report_rel} 파일을 생성해. 형식:
 # Ingest Report: {title}
 ## Created
 - wiki/path/file.md — WHY: 1줄 이유
@@ -800,59 +882,62 @@ Ingest raw/{slug}.md — 이 소스를 읽고 CLAUDE.md 지침대로 wiki 페이
 ## New cross-links
 - [[a]] ↔ [[b]]"""
 
-    ok, out, err = run_claude(prompt)
+    ok, out, err = run_claude(prompt, project=proj)
 
-    # 2.5) 인덱스 재빌드 (전략에 따라)
     if ok:
-        rebuild_index(WIKI_DIR)
+        rebuild_index(wiki_dir)
 
-    # 3) 스냅샷 after + diff
-    snap_after = _snapshot_wiki()
+    snap_after = _snapshot_wiki(wiki_dir)
     created, modified = _diff_snapshots(snap_before, snap_after)
 
-    # 4) reasoning 추출
     reasoning = ""
     if "REASONING:" in out:
         reasoning = out.split("REASONING:")[-1].strip()
 
-    # 5) 자동 커밋
     commit_hash = None
     if ok:
-        c = git_mgr.commit_ingest(title)
+        c = git_mgr.commit_ingest(title, project=proj)
         commit_hash = c.get("hash")
 
+    raw_rel = str(raw_path.relative_to(PROJECT_ROOT))
     return {
         "ok": ok,
-        "raw_file": f"raw/{slug}.md",
+        "project": proj.slug,
+        "raw_file": raw_rel,
         "claude_output": out,
         "error": err,
         "commit_hash": commit_hash,
         "created_pages": created,
         "modified_pages": modified,
         "reasoning": reasoning,
-        "report_path": report_path,
+        "report_path": str((proj.root / report_rel).relative_to(PROJECT_ROOT)),
     }
 
 
-def do_query(question):
-    idx_inst = get_index_instruction(WIKI_DIR)
+def do_query(question, project_slug=None):
+    proj = project_registry.get_project(project_slug)
+    idx_inst = get_index_instruction(proj.wiki_dir)
     prompt = f"""다음 질문에 답해. {idx_inst}
 관련 wiki 페이지를 찾아 읽은 뒤 답변을 합성해.
 답변에 관련 위키 페이지를 [[wikilink]]로 인용해.
 질문: {question}"""
-    ok, answer, err, files_read, token_usage = run_claude_tracked(prompt)
+    ok, answer, err, files_read, token_usage = run_claude_tracked(prompt, project=proj)
 
-    # wiki_ratio 계산
-    wiki_files = [f for f in files_read if f.startswith("wiki/")]
-    raw_files = [f for f in files_read if f.startswith("raw/")]
+    # 경로가 project-relative인지 root-relative인지 다를 수 있으므로 둘 다 커버
+    def _is_wiki(f):
+        return f.startswith("wiki/") or "/wiki/" in f
+    def _is_raw(f):
+        return f.startswith("raw/") or "/raw/" in f
+
+    wiki_files = [f for f in files_read if _is_wiki(f)]
+    raw_files = [f for f in files_read if _is_raw(f)]
     total = len(files_read)
     wiki_ratio = len(wiki_files) / total if total > 0 else 0.0
 
-    # 로그 기록
-    _log_query(question, files_read, round(wiki_ratio, 3), len(answer))
+    _log_query(question, files_read, round(wiki_ratio, 3), len(answer), query_log=proj.query_log)
 
     return {
-        "ok": ok, "answer": answer, "error": err,
+        "ok": ok, "project": proj.slug, "answer": answer, "error": err,
         "files_read": files_read,
         "wiki_files": len(wiki_files),
         "raw_files": len(raw_files),
@@ -861,16 +946,18 @@ def do_query(question):
     }
 
 
-def do_query_save(title, content):
+def do_query_save(title, content, project_slug=None):
     """Query 답변을 wiki에 analysis 페이지로 저장"""
     if not title or not title.strip():
         return {"ok": False, "error": "Title is required"}
+    proj = project_registry.get_project(project_slug)
+    wiki_dir = proj.wiki_dir
+    wiki_dir.mkdir(parents=True, exist_ok=True)
     slug = make_slug(title)
-    filepath = WIKI_DIR / f"{slug}.md"
-    # 중복 회피
+    filepath = wiki_dir / f"{slug}.md"
     n = 2
     while filepath.exists():
-        filepath = WIKI_DIR / f"{slug}-{n}.md"
+        filepath = wiki_dir / f"{slug}-{n}.md"
         n += 1
     slug = filepath.stem
     today = datetime.now().strftime("%Y-%m-%d")
@@ -887,16 +974,16 @@ tags:
 {content}
 """
     filepath.write_text(md, encoding="utf-8")
-    # index, log 갱신은 claude에게 맡김
     prompt = f"wiki/{slug}.md 페이지를 방금 생성했다. wiki/index.md의 Analyses 섹션에 이 페이지를 추가하고, wiki/log.md에 query 로그를 남기고, wiki/overview.md 통계를 갱신해."
-    run_claude(prompt)
-    git_mgr.commit_query_save(title)
-    return {"ok": True, "filename": f"{slug}.md"}
+    run_claude(prompt, project=proj)
+    git_mgr.commit_query_save(title, project=proj)
+    return {"ok": True, "project": proj.slug, "filename": f"{slug}.md"}
 
 
-def do_fix_citations(page_filename):
+def do_fix_citations(page_filename, project_slug=None):
     """특정 페이지의 citation을 Claude에게 보완시킴"""
-    filepath = WIKI_DIR / page_filename
+    proj = project_registry.get_project(project_slug)
+    filepath = proj.wiki_dir / page_filename
     if not filepath.exists():
         return {"ok": False, "error": "Page not found"}
     prompt = f"""wiki/{page_filename}을 읽어.
@@ -911,35 +998,34 @@ def do_fix_citations(page_filename):
 - 기존 citation은 유지해
 
 수정 후 결과를 보고해."""
-    ok, out, err = run_claude(prompt)
+    ok, out, err = run_claude(prompt, project=proj)
     if ok:
-        git_mgr._stage_all()
-        git_mgr._run("commit", "-m", f"citation: fix {page_filename}")
-    return {"ok": ok, "output": out, "error": err}
+        git_mgr._stage_all(project=proj)
+        git_mgr._run("commit", "-m", f"citation{git_mgr._slug_prefix(proj)}: fix {page_filename}")
+    return {"ok": ok, "project": proj.slug, "output": out, "error": err}
 
 
 REFLECT_DIR = PROJECT_ROOT / "reflect-reports"
 REFLECT_DIR.mkdir(exist_ok=True)
 
 
-def _collect_reflect_context(window):
+def _collect_reflect_context(window, project=None):
     """window에 따라 log 항목 + ingest-reports 텍스트 수집"""
-    # log.md 파싱
-    log_file = WIKI_DIR / "log.md"
+    wiki_dir = project.wiki_dir if project else WIKI_DIR
+    ingest_dir = project.ingest_reports if project else (PROJECT_ROOT / "ingest-reports")
+    qlog_file = project.query_log if project else QUERY_LOG
+
+    log_file = wiki_dir / "log.md"
     log_text = log_file.read_text("utf-8") if log_file.exists() else ""
 
-    # ingest-reports 수집
-    report_dir = PROJECT_ROOT / "ingest-reports"
     reports = []
-    if report_dir.is_dir():
-        for f in sorted(report_dir.glob("*.md"), reverse=True):
+    if ingest_dir.is_dir():
+        for f in sorted(ingest_dir.glob("*.md"), reverse=True):
             reports.append({"name": f.name, "content": f.read_text("utf-8")[:2000]})
 
-    # query-log.jsonl에서 wiki_ratio 낮은 쿼리 수집
     low_ratio_queries = []
-    qlog = PROJECT_ROOT / "query-log.jsonl"
-    if qlog.exists():
-        for line in qlog.read_text("utf-8").strip().split("\n"):
+    if qlog_file.exists():
+        for line in qlog_file.read_text("utf-8").strip().split("\n"):
             if not line:
                 continue
             try:
@@ -964,8 +1050,11 @@ def _collect_reflect_context(window):
     }
 
 
-def do_reflect(window="last-10-ingests"):
-    ctx = _collect_reflect_context(window)
+def do_reflect(window="last-10-ingests", project_slug=None):
+    proj = project_registry.get_project(project_slug)
+    reflect_dir = proj.reflect_reports
+    reflect_dir.mkdir(parents=True, exist_ok=True)
+    ctx = _collect_reflect_context(window, project=proj)
 
     reports_summary = "\n\n".join(
         f"### {r['name']}\n{r['content']}" for r in ctx["reports"]
@@ -1013,16 +1102,13 @@ def do_reflect(window="last-10-ingests"):
 
 또한 각 섹션 제목 앞에 SUGGESTED_PAGES:, SUGGESTED_SCHEMA:, SUGGESTED_SOURCES:, CONTRADICTION_REVIEW: 마커를 넣어 파싱 가능하게 해."""
 
-    ok, out, err = run_claude(prompt)
+    ok, out, err = run_claude(prompt, project=proj)
     if ok:
-        git_mgr._stage_all()
-        if REFLECT_DIR.is_dir():
-            git_mgr._run("add", "reflect-reports/")
-        git_mgr._run("commit", "-m", f"reflect: {today} ({window})")
+        git_mgr._stage_all(project=proj)
+        git_mgr._run("commit", "-m", f"reflect{git_mgr._slug_prefix(proj)}: {today} ({window})")
 
-    # 구조화된 섹션 파싱 — report 파일에서 직접 읽음
     sections = {"suggested_pages": "", "suggested_schema": "", "suggested_sources": "", "contradiction_review": ""}
-    report_file = PROJECT_ROOT / report_path
+    report_file = proj.root / report_path
     report_text = report_file.read_text("utf-8") if report_file.exists() else out
     # ## SUGGESTED_PAGES: 또는 ## Suggested Pages 형태 모두 처리
     section_patterns = [
@@ -1047,27 +1133,29 @@ def do_reflect(window="last-10-ingests"):
         sections[key] = report_text[start:end].strip().lstrip("#").strip()
 
     return {
-        "ok": ok, "error": err,
+        "ok": ok, "project": proj.slug, "error": err,
         "raw_output": out,
-        "report_path": report_path,
+        "report_path": str((proj.root / report_path).relative_to(PROJECT_ROOT)),
         "sections": sections,
     }
 
 
-def get_last_reflect_date():
+def get_last_reflect_date(project_slug=None):
     """마지막 reflect-reports 날짜"""
-    if not REFLECT_DIR.is_dir():
+    proj = project_registry.get_project(project_slug)
+    d = proj.reflect_reports
+    if not d.is_dir():
         return None
-    files = sorted(REFLECT_DIR.glob("*.md"), reverse=True)
+    files = sorted(d.glob("*.md"), reverse=True)
     if not files:
         return None
-    # 파일명: YYYY-MM-DD.md
     return files[0].stem
 
 
-def do_lint():
+def do_lint(project_slug=None):
+    proj = project_registry.get_project(project_slug)
     today = datetime.now().strftime("%Y-%m-%d")
-    idx_inst = get_index_instruction(WIKI_DIR)
+    idx_inst = get_index_instruction(proj.wiki_dir)
     prompt = f"""{idx_inst}
 CLAUDE.md의 "Lint 체크리스트" 섹션을 읽고 wiki 전체를 점검해.
 
@@ -1106,11 +1194,12 @@ CLAUDE.md의 "Lint 체크리스트" 섹션을 읽고 wiki 전체를 점검해.
 - [ ] page.md — 문제 설명
 
 각 항목에 수정 제안을 포함해."""
-    ok, out, err = run_claude(prompt)
-    return {"ok": ok, "report": out, "error": err}
+    ok, out, err = run_claude(prompt, project=proj)
+    return {"ok": ok, "project": proj.slug, "report": out, "error": err}
 
 
-def do_lint_fix():
+def do_lint_fix(project_slug=None):
+    proj = project_registry.get_project(project_slug)
     prompt = """방금 CLAUDE.md의 Lint 체크리스트로 점검을 했다. 발견된 모든 문제를 지금 수정해:
 
 - frontmatter 누락/불일치 → 올바른 frontmatter 추가/수정
@@ -1125,24 +1214,25 @@ def do_lint_fix():
 - index.md, log.md, overview.md 갱신
 
 수정한 내용을 Critical/Warning/Info 별로 요약해서 보고해."""
-    ok, out, err = run_claude(prompt)
+    ok, out, err = run_claude(prompt, project=proj)
     if ok:
-        git_mgr.commit_lint_fix()
-    return {"ok": ok, "result": out, "error": err}
+        git_mgr.commit_lint_fix(project=proj)
+    return {"ok": ok, "project": proj.slug, "result": out, "error": err}
 
 
 # ─── Writing Companion ───
 
-def do_write(topic, length="medium", style="blog"):
+def do_write(topic, length="medium", style="blog", project_slug=None):
     if not topic or not topic.strip():
         return {"ok": False, "error": "Topic is required"}
+    proj = project_registry.get_project(project_slug)
     word_map = {"short": "약 300단어", "medium": "약 700단어", "long": "약 1500단어"}
     style_map = {
         "blog": "블로그 글 스타일 (친근하고 명확하게)",
         "paper": "학술적 스타일 (정확하고 엄밀하게)",
         "explainer": "해설 스타일 (초보자도 이해 가능하게)",
     }
-    idx_inst = get_index_instruction(WIKI_DIR)
+    idx_inst = get_index_instruction(proj.wiki_dir)
     prompt = f"""{idx_inst}
 주제: {topic}
 분량: {word_map.get(length, '약 700단어')}
@@ -1158,17 +1248,19 @@ def do_write(topic, length="medium", style="blog"):
 - 위키에 관련 소스가 없는 주제는 언급하지 마
 
 바로 글만 출력 (메타 설명 없이)."""
-    ok, out, err = run_claude(prompt)
-    return {"ok": ok, "draft": out, "error": err}
+    ok, out, err = run_claude(prompt, project=proj)
+    return {"ok": ok, "project": proj.slug, "draft": out, "error": err}
 
 
 # ─── Page Comparison ───
 
-def do_compare(page_a, page_b, save_as=""):
+def do_compare(page_a, page_b, save_as="", project_slug=None):
     if not page_a or not page_b:
         return {"ok": False, "error": "Both pages required"}
-    fa = WIKI_DIR / page_a
-    fb = WIKI_DIR / page_b
+    proj = project_registry.get_project(project_slug)
+    wiki_dir = proj.wiki_dir
+    fa = wiki_dir / page_a
+    fb = wiki_dir / page_b
     if not fa.exists() or not fb.exists():
         return {"ok": False, "error": "Page not found"}
 
@@ -1181,14 +1273,14 @@ def do_compare(page_a, page_b, save_as=""):
 
 각 주장에 [^src-*] citation 포함. 양 페이지의 소스를 모두 활용."""
 
-    ok, out, err = run_claude(prompt)
+    ok, out, err = run_claude(prompt, project=proj)
     saved_file = None
     if ok and save_as:
         slug = make_slug(save_as)
-        target = WIKI_DIR / f"{slug}.md"
+        target = wiki_dir / f"{slug}.md"
         n = 2
         while target.exists():
-            target = WIKI_DIR / f"{slug}-{n}.md"
+            target = wiki_dir / f"{slug}-{n}.md"
             n += 1
         today = datetime.now().strftime("%Y-%m-%d")
         fm = f"""---
@@ -1206,19 +1298,23 @@ tags:
 {out}
 """
         target.write_text(fm, encoding="utf-8")
-        saved_file = str(target.relative_to(WIKI_DIR))
-        git_mgr._stage_all()
-        git_mgr._run("commit", "-m", f"compare: {save_as}")
-    return {"ok": ok, "analysis": out, "error": err, "saved": saved_file}
+        saved_file = str(target.relative_to(wiki_dir))
+        git_mgr._stage_all(project=proj)
+        git_mgr._run("commit", "-m", f"compare{git_mgr._slug_prefix(proj)}: {save_as}")
+    return {"ok": ok, "project": proj.slug, "analysis": out, "error": err, "saved": saved_file}
 
 
 # ─── Spaced Review ───
 
-def do_review_list(days=30):
+def do_review_list(days=30, project_slug=None):
+    proj = project_registry.get_project(project_slug)
     from datetime import timedelta
     cutoff = datetime.now() - timedelta(days=days)
     stale = []
-    for md in WIKI_DIR.rglob("*.md"):
+    wiki_dir = proj.wiki_dir
+    if not wiki_dir.exists():
+        return stale
+    for md in wiki_dir.rglob("*.md"):
         text = md.read_text("utf-8")
         meta, _ = parse_fm(text)
         if meta.get("status", "active") != "active":
@@ -1233,7 +1329,7 @@ def do_review_list(days=30):
             if lu < cutoff:
                 days_stale = (datetime.now() - lu).days
                 stale.append({
-                    "filename": str(md.relative_to(WIKI_DIR)),
+                    "filename": str(md.relative_to(wiki_dir)),
                     "title": meta.get("title", md.stem),
                     "type": meta.get("type", ""),
                     "last_updated": last_updated[:10],
@@ -1245,8 +1341,9 @@ def do_review_list(days=30):
     return stale
 
 
-def do_review_refresh(filename):
-    fp = WIKI_DIR / filename
+def do_review_refresh(filename, project_slug=None):
+    proj = project_registry.get_project(project_slug)
+    fp = proj.wiki_dir / filename
     if not fp.exists():
         return {"ok": False, "error": "Page not found"}
     prompt = f"""wiki/{filename}를 읽고 다음을 수행해:
@@ -1256,17 +1353,18 @@ def do_review_refresh(filename):
 4. 추가한 내용을 요약해 보고
 
 만약 관련 신규 소스가 없다면 "새로운 갱신 사항 없음. last_updated만 갱신함."으로 응답하고 last_updated만 갱신."""
-    ok, out, err = run_claude(prompt)
+    ok, out, err = run_claude(prompt, project=proj)
     if ok:
-        git_mgr._stage_all()
-        git_mgr._run("commit", "-m", f"review: refresh {filename}")
-    return {"ok": ok, "result": out, "error": err}
+        git_mgr._stage_all(project=proj)
+        git_mgr._run("commit", "-m", f"review{git_mgr._slug_prefix(proj)}: refresh {filename}")
+    return {"ok": ok, "project": proj.slug, "result": out, "error": err}
 
 
 # ─── Marp Slide Export ───
 
-def do_slides(page_filename):
-    fp = WIKI_DIR / page_filename
+def do_slides(page_filename, project_slug=None):
+    proj = project_registry.get_project(project_slug)
+    fp = proj.wiki_dir / page_filename
     if not fp.exists():
         return {"ok": False, "error": "Page not found"}
     content = fp.read_text("utf-8")
@@ -1285,8 +1383,8 @@ def do_slides(page_filename):
 - 원본의 citation ([^src-*])은 각 슬라이드 footer에 유지
 
 출력은 순수 Marp 마크다운만 (설명 없이)."""
-    ok, out, err = run_claude(prompt)
-    return {"ok": ok, "marp": out, "error": err, "title": title}
+    ok, out, err = run_claude(prompt, project=proj)
+    return {"ok": ok, "project": proj.slug, "marp": out, "error": err, "title": title}
 
 
 # ─── Smart Search (TF-IDF) ───
@@ -1295,16 +1393,20 @@ def _tokenize(text):
     return re.findall(r"[\w가-힣]+", text.lower())
 
 
-def do_search(query, top_k=10):
+def do_search(query, top_k=10, project_slug=None):
     """간단한 TF-IDF 기반 검색 (stdlib만 사용)"""
+    proj = project_registry.get_project(project_slug)
+    wiki_dir = proj.wiki_dir
     import math
     q_tokens = _tokenize(query)
     if not q_tokens:
-        return {"ok": True, "results": []}
+        return {"ok": True, "project": proj.slug, "results": []}
 
     docs = {}
-    for md in WIKI_DIR.rglob("*.md"):
-        rel = str(md.relative_to(WIKI_DIR))
+    if not wiki_dir.exists():
+        return {"ok": True, "project": proj.slug, "results": []}
+    for md in wiki_dir.rglob("*.md"):
+        rel = str(md.relative_to(wiki_dir))
         text = md.read_text("utf-8")
         _, body = parse_fm(text)
         tokens = _tokenize(body)
@@ -1345,12 +1447,13 @@ def do_search(query, top_k=10):
                     break
             scored.append({"filename": rel, "score": round(score, 4), "snippet": snippet})
     scored.sort(key=lambda x: -x["score"])
-    return {"ok": True, "results": scored[:top_k]}
+    return {"ok": True, "project": proj.slug, "results": scored[:top_k]}
 
 
 # ─── Related Sources Suggestion ───
 
-def do_suggest_sources():
+def do_suggest_sources(project_slug=None):
+    proj = project_registry.get_project(project_slug)
     prompt = """wiki/index.md와 최근 log.md를 읽어 현재 위키의 지식 커버리지를 파악해.
 
 다음을 분석해 5~10개의 구체적인 "다음에 ingest할만한 소스 검색어"를 제안:
@@ -1364,7 +1467,7 @@ def do_suggest_sources():
 SUGGESTION: "검색어 또는 논문 제목" | WHY: 이유 | EXPECTED_PAGES: 이 소스가 보강할 위키 페이지 리스트
 ```
 각 줄마다 하나씩. 설명 없이 제안 리스트만."""
-    ok, out, err = run_claude(prompt)
+    ok, out, err = run_claude(prompt, project=proj)
     suggestions = []
     if ok:
         for line in out.split("\n"):
@@ -1375,7 +1478,7 @@ SUGGESTION: "검색어 또는 논문 제목" | WHY: 이유 | EXPECTED_PAGES: 이
                     why = parts[1].replace("WHY:", "").strip() if len(parts) > 1 else ""
                     expected = parts[2].replace("EXPECTED_PAGES:", "").strip() if len(parts) > 2 else ""
                     suggestions.append({"suggestion": sugg, "why": why, "expected_pages": expected})
-    return {"ok": ok, "suggestions": suggestions, "raw": out, "error": err}
+    return {"ok": ok, "project": proj.slug, "suggestions": suggestions, "raw": out, "error": err}
 
 
 # ─── 대시보드 도우미 챗봇 ───
@@ -1459,20 +1562,98 @@ def do_assistant_chat(question, lang="en", history=None):
         return {"ok": False, "error": "claude CLI not found"}
 
 
+# ─── Projects API (MP-03) ───
+# legacy 모드 유지하면서 projects.json 기반 멀티 프로젝트 기반을 도입.
+# 기존 do_*()는 현재 WIKI_DIR/RAW_DIR 상수를 그대로 사용 (MP-07에서 스코핑).
+
+def list_projects_api():
+    projects = [p.to_dict() for p in project_registry.list_projects()]
+    active_slug = project_registry.get_active_slug()
+    # legacy 정보도 노출
+    legacy = None
+    if project_registry.LEGACY_WIKI.exists():
+        try:
+            legacy_proj = project_registry.get_project()
+            if legacy_proj.is_legacy:
+                legacy = legacy_proj.to_dict()
+        except Exception:
+            legacy = None
+    return {
+        "ok": True,
+        "active": active_slug,
+        "projects": projects,
+        "legacy": legacy,
+        "has_projects": project_registry.has_projects(),
+    }
+
+
+def get_active_project_api():
+    try:
+        p = project_registry.get_project()
+        return {"ok": True, "project": p.to_dict()}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def create_project_api(slug_hint, title, description, model, template):
+    try:
+        p = project_registry.create_project(
+            slug_hint=slug_hint or title,
+            title=title,
+            description=description,
+            model=model,
+            template=template,
+        )
+        return {"ok": True, "project": p.to_dict()}
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+def switch_project_api(slug):
+    try:
+        p = project_registry.switch_project(slug)
+        return {"ok": True, "project": p.to_dict()}
+    except KeyError as e:
+        return {"ok": False, "error": str(e)}
+
+
+def update_project_api(slug, **fields):
+    # None 값은 버림
+    cleaned = {k: v for k, v in fields.items() if v is not None}
+    try:
+        p = project_registry.update_project_settings(slug, **cleaned)
+        return {"ok": True, "project": p.to_dict()}
+    except KeyError as e:
+        return {"ok": False, "error": str(e)}
+    except TypeError as e:
+        return {"ok": False, "error": str(e)}
+
+
+def delete_project_api(slug, confirm):
+    return project_registry.delete_project(slug, confirm=confirm)
+
+
 # ─── CRUD ───
 
-def create_folder(name, parent=""):
-    base = WIKI_DIR / parent if parent else WIKI_DIR
+def create_folder(name, parent="", project_slug=None):
+    proj = project_registry.get_project(project_slug)
+    proj.wiki_dir.mkdir(parents=True, exist_ok=True)
+    base = proj.wiki_dir / parent if parent else proj.wiki_dir
     folder = base / name
     folder.mkdir(parents=True, exist_ok=True)
-    return {"ok": True, "path": str(folder.relative_to(WIKI_DIR))}
+    return {"ok": True, "project": proj.slug, "path": str(folder.relative_to(proj.wiki_dir))}
 
 
-def create_page(title, page_type, folder="", content=""):
+def create_page(title, page_type, folder="", content="", project_slug=None):
     if not title or not title.strip():
         return {"ok": False, "error": "Title is required"}
+    proj = project_registry.get_project(project_slug)
+    wiki_dir = proj.wiki_dir
+    wiki_dir.mkdir(parents=True, exist_ok=True)
     slug = make_slug(title)
-    base = WIKI_DIR / folder if folder else WIKI_DIR
+    base = wiki_dir / folder if folder else wiki_dir
     base.mkdir(parents=True, exist_ok=True)
     filepath = base / f"{slug}.md"
     today = datetime.now().strftime("%Y-%m-%d")
@@ -1489,11 +1670,12 @@ tags: []
 {body}
 """
     filepath.write_text(md, encoding="utf-8")
-    return {"ok": True, "filename": str(filepath.relative_to(WIKI_DIR))}
+    return {"ok": True, "project": proj.slug, "filename": str(filepath.relative_to(wiki_dir))}
 
 
-def update_page(filename, content):
-    filepath = WIKI_DIR / filename
+def update_page(filename, content, project_slug=None):
+    proj = project_registry.get_project(project_slug)
+    filepath = proj.wiki_dir / filename
     try:
         assert_writable(filepath)
     except PermissionError as e:
@@ -1501,11 +1683,12 @@ def update_page(filename, content):
     if not filepath.exists():
         return {"ok": False, "error": "Page not found"}
     filepath.write_text(content, encoding="utf-8")
-    return {"ok": True}
+    return {"ok": True, "project": proj.slug}
 
 
-def delete_page(filename):
-    filepath = WIKI_DIR / filename
+def delete_page(filename, project_slug=None):
+    proj = project_registry.get_project(project_slug)
+    filepath = proj.wiki_dir / filename
     try:
         assert_writable(filepath)
     except PermissionError as e:
@@ -1515,7 +1698,7 @@ def delete_page(filename):
     if filename in ("index.md", "log.md", "overview.md"):
         return {"ok": False, "error": "Cannot delete system page"}
     filepath.unlink()
-    return {"ok": True}
+    return {"ok": True, "project": proj.slug}
 
 
 # ─── HTTP Handler ───
@@ -1527,37 +1710,63 @@ class Handler(SimpleHTTPRequestHandler):
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
+        qs = urllib.parse.parse_qs(parsed.query or "")
+        q_project = (qs.get("project", [""])[0] or "").strip() or None
         try:
+            # 미지 slug는 조기 404
+            if q_project is not None:
+                try:
+                    project_registry.get_project(q_project)
+                except KeyError as e:
+                    return self._json({"ok": False, "error": str(e)}, code=404)
             if path == "/api/status":
                 return self._json(check_status())
+            if path == "/api/projects":
+                return self._json(list_projects_api())
+            if path == "/api/projects/active":
+                return self._json(get_active_project_api())
+            if path == "/api/templates":
+                names = project_registry.list_template_names()
+                out = [{"name": "", "label": "generic", "folders": project_registry.recommended_folders("")}]
+                out.extend({"name": n, "label": n, "folders": project_registry.recommended_folders(n)} for n in names)
+                return self._json({"ok": True, "templates": out})
             if path == "/api/wiki":
-                return self._json(build_wiki_data())
+                return self._json(build_wiki_data(q_project))
             if path == "/api/folders":
-                return self._json(get_folder_tree())
+                return self._json(get_folder_tree(q_project))
             if path == "/api/hash":
-                return self._json({"hash": wiki_hash()})
+                return self._json({"hash": wiki_hash(q_project)})
             if path == "/api/schema":
-                schema_path = PROJECT_ROOT / "CLAUDE.md"
-                content = schema_path.read_text("utf-8") if schema_path.exists() else ""
-                return self._json({"ok": True, "content": content})
+                proj = _resolve_project(q_project)
+                content = proj.claude_md.read_text("utf-8") if proj.claude_md.exists() else ""
+                return self._json({"ok": True, "project": proj.slug, "content": content})
             if path == "/api/history":
                 return self._json(git_mgr.list_ingests())
             if path == "/api/provenance":
-                return self._json(build_provenance_graph(WIKI_DIR))
+                proj = _resolve_project(q_project)
+                return self._json(build_provenance_graph(proj.wiki_dir))
             if path == "/api/query-stats":
-                return self._json(_get_query_stats())
+                proj = _resolve_project(q_project)
+                return self._json(_get_query_stats(query_log=proj.query_log))
             if path == "/api/index/status":
-                return self._json(get_strategy(WIKI_DIR))
+                proj = _resolve_project(q_project)
+                return self._json(get_strategy(proj.wiki_dir))
             if path == "/api/raw/integrity":
                 return self._json(check_raw_integrity())
             if path == "/api/claude/diagnose":
                 return self._json(diagnose_claude())
             if path == "/api/review/list":
-                return self._json(do_review_list())
+                return self._json(do_review_list(project_slug=q_project))
             if path == "/api/settings":
-                return self._json({"settings": SETTINGS, "models": AVAILABLE_MODELS})
+                proj = _resolve_project(q_project)
+                return self._json({
+                    "settings": SETTINGS,
+                    "project_model": proj.model if not proj.is_legacy else SETTINGS.get("model", "default"),
+                    "project_slug": proj.slug,
+                    "models": AVAILABLE_MODELS,
+                })
             if path == "/api/reflect/status":
-                last = get_last_reflect_date()
+                last = get_last_reflect_date(project_slug=q_project)
                 days_ago = None
                 if last:
                     try:
@@ -1590,46 +1799,48 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             body = self._read_body()
 
+            # 전 엔드포인트에서 body.project 사용 (미지 slug면 get_project가 KeyError)
+            p_slug = (body.get("project") or "").strip() or None
             if path == "/api/ingest":
-                return self._json(do_ingest(body.get("title", ""), body.get("content", ""), body.get("folder", "")))
+                return self._json(do_ingest(body.get("title", ""), body.get("content", ""), body.get("folder", ""), project_slug=p_slug))
             if path == "/api/query":
-                return self._json(do_query(body.get("question", "")))
+                return self._json(do_query(body.get("question", ""), project_slug=p_slug))
             if path == "/api/query/save":
-                return self._json(do_query_save(body.get("title", ""), body.get("content", "")))
+                return self._json(do_query_save(body.get("title", ""), body.get("content", ""), project_slug=p_slug))
             if path == "/api/lint":
-                return self._json(do_lint())
+                return self._json(do_lint(project_slug=p_slug))
             if path == "/api/lint/fix":
-                return self._json(do_lint_fix())
+                return self._json(do_lint_fix(project_slug=p_slug))
             if path == "/api/folder":
-                return self._json(create_folder(body.get("name", ""), body.get("parent", "")))
+                return self._json(create_folder(body.get("name", ""), body.get("parent", ""), project_slug=p_slug))
             if path == "/api/page":
-                return self._json(create_page(body.get("title", ""), body.get("type", "concept"), body.get("folder", ""), body.get("content", "")))
+                return self._json(create_page(body.get("title", ""), body.get("type", "concept"), body.get("folder", ""), body.get("content", ""), project_slug=p_slug))
             if path == "/api/page/update":
-                return self._json(update_page(body.get("filename", ""), body.get("content", "")))
+                return self._json(update_page(body.get("filename", ""), body.get("content", ""), project_slug=p_slug))
             if path == "/api/page/delete":
-                return self._json(delete_page(body.get("filename", "")))
+                return self._json(delete_page(body.get("filename", ""), project_slug=p_slug))
             if path == "/api/schema":
-                schema_path = PROJECT_ROOT / "CLAUDE.md"
-                schema_path.write_text(body.get("content", ""), encoding="utf-8")
-                return self._json({"ok": True})
+                proj = project_registry.get_project(p_slug)
+                proj.claude_md.write_text(body.get("content", ""), encoding="utf-8")
+                return self._json({"ok": True, "project": proj.slug})
             if path == "/api/revert":
                 return self._json(git_mgr.revert_ingest(body.get("commit_hash", "")))
             if path == "/api/provenance/fix":
-                return self._json(do_fix_citations(body.get("page", "")))
+                return self._json(do_fix_citations(body.get("page", ""), project_slug=p_slug))
             if path == "/api/reflect":
-                return self._json(do_reflect(body.get("window", "last-10-ingests")))
+                return self._json(do_reflect(body.get("window", "last-10-ingests"), project_slug=p_slug))
             if path == "/api/write":
-                return self._json(do_write(body.get("topic", ""), body.get("length", "medium"), body.get("style", "blog")))
+                return self._json(do_write(body.get("topic", ""), body.get("length", "medium"), body.get("style", "blog"), project_slug=p_slug))
             if path == "/api/compare":
-                return self._json(do_compare(body.get("page_a", ""), body.get("page_b", ""), body.get("save_as", "")))
+                return self._json(do_compare(body.get("page_a", ""), body.get("page_b", ""), body.get("save_as", ""), project_slug=p_slug))
             if path == "/api/review/refresh":
-                return self._json(do_review_refresh(body.get("filename", "")))
+                return self._json(do_review_refresh(body.get("filename", ""), project_slug=p_slug))
             if path == "/api/slides":
-                return self._json(do_slides(body.get("page", "")))
+                return self._json(do_slides(body.get("page", ""), project_slug=p_slug))
             if path == "/api/search":
-                return self._json(do_search(body.get("query", ""), body.get("top_k", 10)))
+                return self._json(do_search(body.get("query", ""), body.get("top_k", 10), project_slug=p_slug))
             if path == "/api/suggest/sources":
-                return self._json(do_suggest_sources())
+                return self._json(do_suggest_sources(project_slug=p_slug))
             if path == "/api/obsidian/register":
                 return self._json(register_obsidian_vault())
             if path == "/api/assistant":
@@ -1643,15 +1854,46 @@ class Handler(SimpleHTTPRequestHandler):
                 valid = [m["id"] for m in AVAILABLE_MODELS]
                 if model not in valid:
                     return self._json({"ok": False, "error": f"Unknown model: {model}"})
-                SETTINGS["model"] = model
-                _save_settings(SETTINGS)
-                return self._json({"ok": True, "settings": SETTINGS})
+                # 레거시: 글로벌 SETTINGS. 프로젝트 있음: active 프로젝트 .settings.json
+                proj = project_registry.get_project(p_slug)
+                if proj.is_legacy:
+                    SETTINGS["model"] = model
+                    _save_settings(SETTINGS)
+                    return self._json({"ok": True, "project": "", "settings": SETTINGS})
+                try:
+                    updated = project_registry.update_project_settings(proj.slug, model=model)
+                    return self._json({"ok": True, "project": updated.slug, "model": updated.model})
+                except ValueError as e:
+                    return self._json({"ok": False, "error": str(e)})
             if path == "/api/index/rebuild":
-                result = rebuild_index(WIKI_DIR)
+                proj = project_registry.get_project(p_slug)
+                result = rebuild_index(proj.wiki_dir)
                 if result["ok"]:
-                    git_mgr._stage_all()
-                    git_mgr._run("commit", "-m", f"index: rebuild ({result['mode']})")
+                    git_mgr._stage_all(project=proj)
+                    git_mgr._run("commit", "-m", f"index{git_mgr._slug_prefix(proj)}: rebuild ({result['mode']})")
                 return self._json(result)
+            if path == "/api/projects/create":
+                return self._json(create_project_api(
+                    body.get("slug", ""),
+                    body.get("title", ""),
+                    body.get("description", ""),
+                    body.get("model", "default"),
+                    body.get("template", ""),
+                ))
+            if path == "/api/projects/switch":
+                return self._json(switch_project_api(body.get("slug", "")))
+            if path == "/api/projects/update":
+                return self._json(update_project_api(
+                    body.get("slug", ""),
+                    model=body.get("model"),
+                    title=body.get("title"),
+                    description=body.get("description"),
+                ))
+            if path == "/api/projects/delete":
+                return self._json(delete_project_api(
+                    body.get("slug", ""),
+                    bool(body.get("confirm", False)),
+                ))
             # 매칭 안 된 API 경로
             return self._json({"ok": False, "error": f"Unknown endpoint: {path}"}, code=404)
         except BrokenPipeError:
