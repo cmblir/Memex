@@ -7,6 +7,7 @@ import cytoscape from "cytoscape";
 import type { ElementDefinition } from "cytoscape";
 import fcose from "cytoscape-fcose";
 import { useVaultStore } from "../stores/vaultStore";
+import { useUIStore } from "../stores/uiStore";
 
 let layoutRegistered = false;
 
@@ -21,6 +22,7 @@ export default function GraphView(): JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const adjacency = useVaultStore((s) => s.adjacency);
   const openFile = useVaultStore((s) => s.openFile);
+  const setTopView = useUIStore((s) => s.setTopView);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -46,6 +48,7 @@ export default function GraphView(): JSX.Element {
     cy.on("tap", "node", (event) => {
       const path = event.target.id();
       void openFile(path);
+      setTopView("editor");
     });
 
     cy.ready(() => {
@@ -55,7 +58,7 @@ export default function GraphView(): JSX.Element {
     return () => {
       cy.destroy();
     };
-  }, [adjacency, openFile]);
+  }, [adjacency, openFile, setTopView]);
 
   return (
     <div
