@@ -107,6 +107,31 @@ fn pod_to_json(pod: gray_matter::Pod) -> serde_json::Value {
     }
 }
 
+pub fn write_file(path: &str, content: &str) -> Result<(), String> {
+    let target = Path::new(path);
+    let parent = target
+        .parent()
+        .ok_or_else(|| format!("no parent dir for {path}"))?;
+    if !parent.exists() {
+        return Err(format!("parent does not exist: {}", parent.display()));
+    }
+
+    use std::io::Write;
+    let mut tmp = tempfile::Builder::new()
+        .prefix(".memex-tmp-")
+        .suffix(".md")
+        .tempfile_in(parent)
+        .map_err(|e| format!("tempfile create failed: {e}"))?;
+    tmp.write_all(content.as_bytes())
+        .map_err(|e| format!("tempfile write failed: {e}"))?;
+    tmp.as_file_mut()
+        .sync_all()
+        .map_err(|e| format!("tempfile sync failed: {e}"))?;
+    tmp.persist(target)
+        .map_err(|e| format!("rename failed: {}", e.error))?;
+    Ok(())
+}
+
 pub fn list_files(root: &str) -> Result<Vec<FileNode>, String> {
     let root_path = Path::new(root)
         .canonicalize()
@@ -234,6 +259,30 @@ mod tests {
         let fc = read_file(p.to_str().unwrap()).unwrap();
         assert_eq!(fc.content, "no frontmatter here");
         assert!(fc.frontmatter.is_null());
+    }
+
+    #[test]
+    fn write_file_replaces_atomically() {
+        let dir = temp_vault("write");
+        let p = dir.join("note.md");
+        fs::write(&p, "old").unwrap();
+        write_file(p.to_str().unwrap(), "new content").unwrap();
+        let actual = fs::read_to_string(&p).unwrap();
+        assert_eq!(actual, "new content");
+    }
+
+    #[test]
+    fn write_file_creates_new_file() {
+        let dir = temp_vault("write-new");
+        let p = dir.join("brand-new.md");
+        write_file(p.to_str().unwrap(), "fresh").unwrap();
+        assert_eq!(fs::read_to_string(&p).unwrap(), "fresh");
+    }
+
+    #[test]
+    fn write_file_fails_if_parent_missing() {
+        let p = env::temp_dir().join("memex-no-parent-xyz/file.md");
+        assert!(write_file(p.to_str().unwrap(), "x").is_err());
     }
 
     #[test]

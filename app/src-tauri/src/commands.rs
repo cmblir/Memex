@@ -18,3 +18,8 @@ pub fn list_files(root: String) -> Result<Vec<FileNode>, String> {
 pub fn read_file(path: String) -> Result<FileContent, String> {
     vault::read_file(&path)
 }
+
+#[tauri::command]
+pub fn write_file(path: String, content: String) -> Result<(), String> {
+    vault::write_file(&path, &content)
+}

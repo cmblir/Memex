@@ -11,6 +11,7 @@ pub fn run() {
             commands::open_vault,
             commands::list_files,
             commands::read_file,
+            commands::write_file,
         ])
         .setup(|_app| Ok(()))
         .run(tauri::generate_context!())
