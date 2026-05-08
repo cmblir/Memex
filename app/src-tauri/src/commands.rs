@@ -27,6 +27,26 @@ pub fn write_file(path: String, content: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn create_file(parent: String, name: String) -> Result<String, String> {
+    vault::create_file(&parent, &name)
+}
+
+#[tauri::command]
+pub fn create_folder(parent: String, name: String) -> Result<String, String> {
+    vault::create_folder(&parent, &name)
+}
+
+#[tauri::command]
+pub fn delete_path(path: String) -> Result<(), String> {
+    vault::delete_path(&path)
+}
+
+#[tauri::command]
+pub fn rename_path(from: String, to_name: String) -> Result<String, String> {
+    vault::rename_path(&from, &to_name)
+}
+
+#[tauri::command]
 pub fn parse_links(path: String) -> Result<Vec<String>, String> {
     parser::parse_links(&path)
 }

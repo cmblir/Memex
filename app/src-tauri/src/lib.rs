@@ -15,6 +15,10 @@ pub fn run() {
             commands::list_files,
             commands::read_file,
             commands::write_file,
+            commands::create_file,
+            commands::create_folder,
+            commands::delete_path,
+            commands::rename_path,
             commands::parse_links,
             commands::build_link_graph,
         ])

@@ -107,6 +107,74 @@ fn pod_to_json(pod: gray_matter::Pod) -> serde_json::Value {
     }
 }
 
+pub fn create_file(parent: &str, name: &str) -> Result<String, String> {
+    validate_name(name)?;
+    let parent_path = Path::new(parent);
+    if !parent_path.is_dir() {
+        return Err(format!("parent is not a directory: {parent}"));
+    }
+    let target = parent_path.join(name);
+    if target.exists() {
+        return Err(format!("already exists: {}", target.display()));
+    }
+    std::fs::write(&target, "").map_err(|e| format!("create failed: {e}"))?;
+    Ok(target.to_string_lossy().into_owned())
+}
+
+pub fn create_folder(parent: &str, name: &str) -> Result<String, String> {
+    validate_name(name)?;
+    let parent_path = Path::new(parent);
+    if !parent_path.is_dir() {
+        return Err(format!("parent is not a directory: {parent}"));
+    }
+    let target = parent_path.join(name);
+    if target.exists() {
+        return Err(format!("already exists: {}", target.display()));
+    }
+    std::fs::create_dir(&target).map_err(|e| format!("mkdir failed: {e}"))?;
+    Ok(target.to_string_lossy().into_owned())
+}
+
+pub fn delete_path(path: &str) -> Result<(), String> {
+    let target = Path::new(path);
+    if !target.exists() {
+        return Err(format!("not found: {path}"));
+    }
+    if target.is_dir() {
+        std::fs::remove_dir_all(target).map_err(|e| format!("rmdir failed: {e}"))
+    } else {
+        std::fs::remove_file(target).map_err(|e| format!("rm failed: {e}"))
+    }
+}
+
+pub fn rename_path(from: &str, to_name: &str) -> Result<String, String> {
+    validate_name(to_name)?;
+    let src = Path::new(from);
+    if !src.exists() {
+        return Err(format!("not found: {from}"));
+    }
+    let parent = src.parent().ok_or_else(|| "no parent dir".to_string())?;
+    let target = parent.join(to_name);
+    if target.exists() {
+        return Err(format!("destination exists: {}", target.display()));
+    }
+    std::fs::rename(src, &target).map_err(|e| format!("rename failed: {e}"))?;
+    Ok(target.to_string_lossy().into_owned())
+}
+
+fn validate_name(name: &str) -> Result<(), String> {
+    if name.is_empty() {
+        return Err("name is empty".into());
+    }
+    if name.contains('/') || name.contains('\\') || name.contains('\0') {
+        return Err("name contains invalid characters".into());
+    }
+    if name == "." || name == ".." {
+        return Err("name reserved".into());
+    }
+    Ok(())
+}
+
 pub fn write_file(path: &str, content: &str) -> Result<(), String> {
     let target = Path::new(path);
     let parent = target
@@ -283,6 +351,54 @@ mod tests {
     fn write_file_fails_if_parent_missing() {
         let p = env::temp_dir().join("memex-no-parent-xyz/file.md");
         assert!(write_file(p.to_str().unwrap(), "x").is_err());
+    }
+
+    #[test]
+    fn create_file_writes_empty_md() {
+        let dir = temp_vault("create-file");
+        let path = create_file(dir.to_str().unwrap(), "alpha.md").unwrap();
+        assert!(std::path::Path::new(&path).exists());
+        assert_eq!(fs::read_to_string(&path).unwrap(), "");
+    }
+
+    #[test]
+    fn create_file_rejects_collision() {
+        let dir = temp_vault("create-file-collide");
+        fs::write(dir.join("x.md"), "old").unwrap();
+        assert!(create_file(dir.to_str().unwrap(), "x.md").is_err());
+    }
+
+    #[test]
+    fn create_folder_rejects_traversal() {
+        let dir = temp_vault("create-folder");
+        assert!(create_folder(dir.to_str().unwrap(), "../escape").is_err());
+        assert!(create_folder(dir.to_str().unwrap(), "ok").is_ok());
+    }
+
+    #[test]
+    fn delete_path_removes_file_and_dir() {
+        let dir = temp_vault("del");
+        let f = dir.join("a.md");
+        fs::write(&f, "x").unwrap();
+        delete_path(f.to_str().unwrap()).unwrap();
+        assert!(!f.exists());
+        let sub = dir.join("sub");
+        fs::create_dir_all(sub.join("inner")).unwrap();
+        delete_path(sub.to_str().unwrap()).unwrap();
+        assert!(!sub.exists());
+    }
+
+    #[test]
+    fn rename_path_moves_within_parent() {
+        let dir = temp_vault("ren");
+        fs::write(dir.join("old.md"), "x").unwrap();
+        let new_path = rename_path(
+            dir.join("old.md").to_str().unwrap(),
+            "new.md",
+        )
+        .unwrap();
+        assert!(std::path::Path::new(&new_path).exists());
+        assert!(!dir.join("old.md").exists());
     }
 
     #[test]

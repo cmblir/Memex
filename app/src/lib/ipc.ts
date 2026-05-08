@@ -40,6 +40,13 @@ export const ipc = {
   parseLinks: (path: string) => invoke<string[]>("parse_links", { path }),
   buildLinkGraph: (root: string) =>
     invoke<Adjacency>("build_link_graph", { root }),
+  createFile: (parent: string, name: string) =>
+    invoke<string>("create_file", { parent, name }),
+  createFolder: (parent: string, name: string) =>
+    invoke<string>("create_folder", { parent, name }),
+  deletePath: (path: string) => invoke<null>("delete_path", { path }),
+  renamePath: (from: string, toName: string) =>
+    invoke<string>("rename_path", { from, toName }),
   pickDirectory: async (): Promise<string | null> => {
     const selection = await open({ directory: true, multiple: false });
     return typeof selection === "string" ? selection : null;

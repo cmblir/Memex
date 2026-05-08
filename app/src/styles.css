@@ -95,6 +95,68 @@ button {
   background: rgba(108, 142, 239, 0.1);
 }
 
+.memex-sidebar__actions {
+  display: flex;
+  gap: 0.25rem;
+  align-items: center;
+}
+
+.memex-sidebar__icon {
+  font-size: 0.85rem;
+  color: var(--fg-muted);
+  padding: 0.1rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.memex-sidebar__icon:hover {
+  color: var(--fg);
+  background: var(--bg-hover);
+}
+
+/* Context menu -------------------------------------------------------- */
+.memex-menu {
+  position: fixed;
+  z-index: 1000;
+  list-style: none;
+  margin: 0;
+  padding: 0.25rem 0;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  min-width: 160px;
+}
+
+.memex-menu li {
+  padding: 0;
+}
+
+.memex-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.85rem;
+  color: var(--fg);
+  background: transparent;
+  border: 0;
+}
+
+.memex-menu button:hover {
+  background: var(--bg-hover);
+}
+
+.memex-menu__danger {
+  color: #ff6b6b !important;
+}
+
+.memex-menu__sep {
+  height: 1px;
+  background: var(--border);
+  margin: 0.25rem 0;
+}
+
 .memex-sidebar__empty {
   margin: 1rem;
   color: var(--fg-muted);

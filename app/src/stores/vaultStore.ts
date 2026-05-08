@@ -18,6 +18,11 @@ export interface VaultState {
   openFile: (path: string) => Promise<void>;
   saveFile: (path: string, content: string) => Promise<void>;
   refreshLinkGraph: () => Promise<void>;
+  refreshTree: () => Promise<void>;
+  createFile: (parentDir: string, name: string) => Promise<string | null>;
+  createFolder: (parentDir: string, name: string) => Promise<string | null>;
+  deletePath: (path: string) => Promise<void>;
+  renamePath: (from: string, toName: string) => Promise<string | null>;
   resolveWikilink: (target: string) => string | null;
   reset: () => void;
 }
@@ -85,6 +90,70 @@ export const useVaultStore = create<VaultState>((set, get) => ({
       void get().refreshLinkGraph();
     } catch (err) {
       set({ error: errorMessage(err) });
+    }
+  },
+
+  async refreshTree() {
+    const vault = get().currentVault;
+    if (!vault) return;
+    try {
+      const tree = await ipc.listFiles(vault.path);
+      set({ fileTree: tree });
+    } catch (err) {
+      set({ error: errorMessage(err) });
+    }
+  },
+
+  async createFile(parentDir, name) {
+    try {
+      const path = await ipc.createFile(parentDir, name);
+      await get().refreshTree();
+      void get().refreshLinkGraph();
+      return path;
+    } catch (err) {
+      set({ error: errorMessage(err) });
+      return null;
+    }
+  },
+
+  async createFolder(parentDir, name) {
+    try {
+      const path = await ipc.createFolder(parentDir, name);
+      await get().refreshTree();
+      return path;
+    } catch (err) {
+      set({ error: errorMessage(err) });
+      return null;
+    }
+  },
+
+  async deletePath(path) {
+    try {
+      await ipc.deletePath(path);
+      const active = get().activeFile;
+      if (active && (active.path === path || active.path.startsWith(`${path}/`))) {
+        set({ activeFile: null });
+      }
+      await get().refreshTree();
+      void get().refreshLinkGraph();
+    } catch (err) {
+      set({ error: errorMessage(err) });
+    }
+  },
+
+  async renamePath(from, toName) {
+    try {
+      const newPath = await ipc.renamePath(from, toName);
+      const active = get().activeFile;
+      if (active?.path === from) {
+        set({ activeFile: { ...active, path: newPath } });
+      }
+      await get().refreshTree();
+      void get().refreshLinkGraph();
+      return newPath;
+    } catch (err) {
+      set({ error: errorMessage(err) });
+      return null;
     }
   },
 
