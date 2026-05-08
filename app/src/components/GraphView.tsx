@@ -31,13 +31,25 @@ export default function GraphView(): JSX.Element {
       container: containerRef.current,
       elements,
       style: GRAPH_STYLE,
-      layout: { name: "fcose" } as cytoscape.LayoutOptions,
+      layout: {
+        name: "fcose",
+        animate: false,
+        fit: true,
+        padding: 30,
+        nodeSeparation: 80,
+      } as unknown as cytoscape.LayoutOptions,
       wheelSensitivity: 0.2,
+      minZoom: 0.1,
+      maxZoom: 4,
     });
 
     cy.on("tap", "node", (event) => {
       const path = event.target.id();
       void openFile(path);
+    });
+
+    cy.ready(() => {
+      cy.fit(undefined, 30);
     });
 
     return () => {
