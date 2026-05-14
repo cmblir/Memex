@@ -78,6 +78,7 @@ export default function Sidebar({ t }: { t: Strings }): JSX.Element {
           <span>{t.quick_search}</span>
           <span className="qkbd">⌘K</span>
         </button>
+        <DailyNoteButton vaultPath={currentVault?.path ?? ""} />
         <button
           className={"qbtn" + (route === "ingest" ? " active" : "")}
           onClick={() => setRoute("ingest")}
@@ -427,6 +428,49 @@ function ContextMenu({
 
 function stripExt(name: string): string {
   return name.replace(/\.md$/i, "");
+}
+
+function DailyNoteButton({ vaultPath }: { vaultPath: string }): JSX.Element {
+  const setRoute = useUIStore((s) => s.setRoute);
+
+  async function handle(): Promise<void> {
+    if (!vaultPath) return;
+    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    const dailyDir = `${vaultPath}/daily`;
+    const filePath = `${dailyDir}/${today}.md`;
+    try {
+      await ipc.readFile(filePath);
+      // exists — just open
+    } catch {
+      try {
+        await ipc.createFolder(vaultPath, "daily");
+      } catch {
+        /* exists */
+      }
+      try {
+        await ipc.createFile(dailyDir, `${today}.md`);
+        const content = `# ${today}\n\n`;
+        await ipc.writeFile(filePath, content);
+      } catch {
+        /* race */
+      }
+      await useVaultStore.getState().refreshTree();
+    }
+    setRoute(`page:${filePath}`);
+  }
+
+  return (
+    <button
+      className="qbtn"
+      onClick={() => void handle()}
+      disabled={!vaultPath}
+    >
+      <span className="qicon">
+        <Icon name="page" />
+      </span>
+      <span>Today&apos;s note</span>
+    </button>
+  );
 }
 
 function countFiles(tree: FileNode[]): number {
