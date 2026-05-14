@@ -14,6 +14,7 @@ import PageSettings from "./pages/PageSettings";
 import PageReader from "./pages/PageReader";
 import { STRINGS } from "./lib/i18n";
 import { useUIStore } from "./stores/uiStore";
+import { useSettingsStore } from "./stores/settingsStore";
 import { getLastVaultPath, useVaultStore } from "./stores/vaultStore";
 import { ipc } from "./lib/ipc";
 
@@ -28,8 +29,13 @@ export default function App(): JSX.Element {
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
   const currentVault = useVaultStore((s) => s.currentVault);
   const openVault = useVaultStore((s) => s.openVault);
+  const loadSettings = useSettingsStore((s) => s.load);
 
   const t = STRINGS[lang] ?? STRINGS.en;
+
+  useEffect(() => {
+    void loadSettings();
+  }, [loadSettings]);
 
   const sysDark = useMemo(
     () => window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false,

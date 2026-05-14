@@ -6,9 +6,10 @@ import type { JSX } from "react";
 import { Icon } from "../lib/icons";
 import type { Strings } from "../lib/i18n";
 import { ipc } from "../lib/ipc";
-import type { ClaudeStatus, ProvenanceRow } from "../lib/ipc";
+import type { ProvenanceRow } from "../lib/ipc";
 import { useUIStore } from "../stores/uiStore";
 import { useVaultStore } from "../stores/vaultStore";
+import { complete } from "../lib/chat";
 
 const LINT_PROMPT = `Run the wiki lint checklist from CLAUDE.md against the current vault:
 
@@ -29,7 +30,6 @@ export default function PageProvenance({ t }: { t: Strings }): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [threshold, setThreshold] = useState(0.7);
-  const [claudeStatus, setClaudeStatus] = useState<ClaudeStatus | null>(null);
   const [lintBusy, setLintBusy] = useState(false);
   const [lintReport, setLintReport] = useState<string | null>(null);
 
@@ -44,17 +44,17 @@ export default function PageProvenance({ t }: { t: Strings }): JSX.Element {
       .finally(() => setLoading(false));
   }, [currentVault]);
 
-  useEffect(() => {
-    ipc.claudeCheck().then(setClaudeStatus).catch(() => undefined);
-  }, []);
-
   async function runLint(): Promise<void> {
-    if (!currentVault || !claudeStatus?.installed || lintBusy) return;
+    if (!currentVault || lintBusy) return;
     setLintBusy(true);
-    setLintReport("Running Claude lint…");
+    setLintReport("Running lint…");
     try {
-      const res = await ipc.claudeRun(LINT_PROMPT, currentVault.path);
-      setLintReport(res.stdout.trim() || res.stderr.trim() || "(no output)");
+      const out = await complete({
+        task: "query",
+        cwd: currentVault.path,
+        messages: [{ role: "user", content: LINT_PROMPT }],
+      });
+      setLintReport(out || "(no output)");
     } catch (err) {
       setLintReport(`ERROR: ${String(err)}`);
     } finally {
@@ -80,18 +80,11 @@ export default function PageProvenance({ t }: { t: Strings }): JSX.Element {
           <button
             className="btn btn-primary"
             onClick={() => void runLint()}
-            disabled={
-              !claudeStatus?.installed || !currentVault || lintBusy
-            }
+            disabled={!currentVault || lintBusy}
           >
             <Icon name="check" size={14} />{" "}
-            {lintBusy ? "Linting…" : "Run lint via Claude"}
+            {lintBusy ? "Linting…" : "Run lint"}
           </button>
-          {!claudeStatus?.installed ? (
-            <span className="muted" style={{ fontSize: 12.5 }}>
-              claude CLI required
-            </span>
-          ) : null}
         </div>
       </header>
 

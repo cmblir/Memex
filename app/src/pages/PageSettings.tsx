@@ -1,17 +1,85 @@
-// Settings page — sub-tabs: Account, Model, Connections, Language,
-// Appearance, About. Most settings are local UI state for the prototype.
+// Settings — six tabs. Model + Connections are wired to real backend
+// (settingsStore + keychain IPC); Account/Language/Appearance act on the
+// live UI store; About is static metadata.
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { JSX } from "react";
 import { Icon, ProviderGlyph } from "../lib/icons";
 import type { IconName, ProviderId } from "../lib/icons";
 import type { Lang, Strings } from "../lib/i18n";
-import { SAMPLE } from "../lib/sample";
-import type { SampleProvider } from "../lib/sample";
 import { useUIStore } from "../stores/uiStore";
 import type { Theme } from "../stores/uiStore";
 import { useVaultStore } from "../stores/vaultStore";
+import { useSettingsStore } from "../stores/settingsStore";
 import { ipc } from "../lib/ipc";
+import type { MemexSettings } from "../lib/ipc";
+
+export interface ProviderDef {
+  id: ProviderId;
+  flag: keyof MemexSettings["providers"] | null; // null for CLI (no toggle)
+  name: string;
+  kind: "cli" | "api" | "local";
+  needsKey: boolean;
+  desc: string;
+  catalog?: string[]; // fallback model list when API list fails
+}
+
+export const PROVIDERS: ProviderDef[] = [
+  {
+    id: "anthropic-cli",
+    flag: null,
+    name: "Claude Code (CLI)",
+    kind: "cli",
+    needsKey: false,
+    desc: "Use your Claude Pro / Max subscription via the local `claude` CLI. No API key needed.",
+    catalog: ["claude-sonnet-4-6", "claude-opus-4-7", "claude-haiku-4-5"],
+  },
+  {
+    id: "anthropic-api",
+    flag: "anthropic_api",
+    name: "Anthropic API",
+    kind: "api",
+    needsKey: true,
+    desc: "Direct calls to api.anthropic.com. Key from console.anthropic.com.",
+    catalog: ["claude-sonnet-4-6", "claude-opus-4-7", "claude-haiku-4-5"],
+  },
+  {
+    id: "openai-api",
+    flag: "openai_api",
+    name: "OpenAI API",
+    kind: "api",
+    needsKey: true,
+    desc: "GPT-4o family via api.openai.com.",
+    catalog: ["gpt-4o", "gpt-4o-mini", "o1-mini"],
+  },
+  {
+    id: "google-api",
+    flag: "google_api",
+    name: "Google AI",
+    kind: "api",
+    needsKey: true,
+    desc: "Gemini family via generativelanguage.googleapis.com.",
+    catalog: ["gemini-2.0-pro", "gemini-2.0-flash"],
+  },
+  {
+    id: "ollama",
+    flag: "ollama",
+    name: "Ollama (local)",
+    kind: "local",
+    needsKey: false,
+    desc: "Run open-source models locally. Auto-detects http://localhost:11434.",
+    catalog: [],
+  },
+  {
+    id: "openrouter",
+    flag: "openrouter",
+    name: "OpenRouter",
+    kind: "api",
+    needsKey: true,
+    desc: "One key for many providers (useful for model comparison).",
+    catalog: [],
+  },
+];
 
 export default function PageSettings({ t }: { t: Strings }): JSX.Element {
   const lang = useUIStore((s) => s.lang);
@@ -22,11 +90,6 @@ export default function PageSettings({ t }: { t: Strings }): JSX.Element {
   const [tab, setTab] = useState<
     "account" | "model" | "providers" | "lang" | "appearance" | "about"
   >("model");
-  const [model, setModel] = useState({
-    ingest: "claude-sonnet-4-6",
-    query: "claude-sonnet-4-6",
-  });
-  const [providers, setProviders] = useState<SampleProvider[]>(SAMPLE.providers);
 
   const tabs: { id: typeof tab; label: string; icon: IconName }[] = [
     { id: "account", label: t.s_account, icon: "shield" },
@@ -36,6 +99,7 @@ export default function PageSettings({ t }: { t: Strings }): JSX.Element {
     { id: "appearance", label: t.s_appearance, icon: "moon" },
     { id: "about", label: t.s_about, icon: "info" },
   ];
+
   return (
     <div className="workspace">
       <header className="page-head">
@@ -59,16 +123,8 @@ export default function PageSettings({ t }: { t: Strings }): JSX.Element {
         </nav>
         <div>
           {tab === "account" ? <SettingsAccount t={t} /> : null}
-          {tab === "model" ? (
-            <SettingsModel t={t} model={model} setModel={setModel} />
-          ) : null}
-          {tab === "providers" ? (
-            <SettingsProviders
-              t={t}
-              providers={providers}
-              setProviders={setProviders}
-            />
-          ) : null}
+          {tab === "model" ? <SettingsModel t={t} /> : null}
+          {tab === "providers" ? <SettingsProviders t={t} /> : null}
           {tab === "lang" ? <SettingsLang t={t} lang={lang} setLang={setLang} /> : null}
           {tab === "appearance" ? (
             <SettingsAppearance t={t} theme={theme} setTheme={setTheme} />
@@ -110,10 +166,6 @@ function SettingsAccount({ t }: { t: Strings }): JSX.Element {
         </div>
       </div>
       <div className="field">
-        <label>Workspace name</label>
-        <input className="input" defaultValue={currentVault?.name ?? ""} />
-      </div>
-      <div className="field">
         <label>Vault path</label>
         <div className="row">
           <input
@@ -137,125 +189,23 @@ function SettingsAccount({ t }: { t: Strings }): JSX.Element {
   );
 }
 
-function SettingsModel({
-  t,
-  model,
-  setModel,
-}: {
-  t: Strings;
-  model: { ingest: string; query: string };
-  setModel: (m: { ingest: string; query: string }) => void;
-}): JSX.Element {
-  const M = SAMPLE.models;
-  function Card({
-    task,
-    current,
-    onPick,
-  }: {
-    task: string;
-    current: string;
-    onPick: (id: string) => void;
-  }): JSX.Element {
-    return (
-      <div className="card">
-        <div className="row" style={{ marginBottom: 12 }}>
-          <div style={{ fontWeight: 600 }}>{task}</div>
-          <span className="muted" style={{ marginLeft: "auto", fontSize: 12 }}>
-            active: {M.find((m) => m.id === current)?.name}
-          </span>
-        </div>
-        <div className="col" style={{ gap: 6 }}>
-          {M.map((m) => {
-            const sel = m.id === current;
-            return (
-              <button
-                key={m.id}
-                className="card-flat"
-                style={{
-                  padding: 12,
-                  border: `1px solid ${sel ? "var(--ink)" : "transparent"}`,
-                  display: "grid",
-                  gridTemplateColumns: "auto 1fr auto",
-                  gap: 12,
-                  alignItems: "center",
-                  textAlign: "left",
-                  cursor: "pointer",
-                  background: sel ? "var(--bg)" : "var(--bg-soft)",
-                }}
-                onClick={() => onPick(m.id)}
-              >
-                <span
-                  style={{
-                    width: 28,
-                    height: 28,
-                    borderRadius: 6,
-                    background: "var(--bg)",
-                    border: "1px solid var(--line)",
-                    display: "grid",
-                    placeItems: "center",
-                    color: "var(--ink-2)",
-                  }}
-                >
-                  <ProviderGlyph
-                    id={
-                      (m.provider === "anthropic"
-                        ? "anthropic-cli"
-                        : m.provider === "openai"
-                          ? "openai-api"
-                          : m.provider === "google"
-                            ? "google-api"
-                            : m.provider === "ollama"
-                              ? "ollama"
-                              : "openrouter") as ProviderId
-                    }
-                    size={16}
-                  />
-                </span>
-                <div>
-                  <div className="row" style={{ gap: 6 }}>
-                    <span style={{ fontWeight: 500 }}>{m.name}</span>
-                    {m.recommended ? (
-                      <span
-                        className="chip"
-                        style={{ background: "var(--ink)", color: "var(--bg)" }}
-                      >
-                        {t.s_model_recommended}
-                      </span>
-                    ) : null}
-                  </div>
-                  <div className="muted" style={{ fontSize: 12.5, marginTop: 2 }}>
-                    {m.desc} · {m.ctx} {t.s_model_ctx} · {m.speed}
-                  </div>
-                </div>
-                <span
-                  style={{
-                    width: 16,
-                    height: 16,
-                    borderRadius: "50%",
-                    border: `1.5px solid ${sel ? "var(--ink)" : "var(--line-strong)"}`,
-                    background: sel ? "var(--ink)" : "transparent",
-                    display: "grid",
-                    placeItems: "center",
-                  }}
-                >
-                  {sel ? (
-                    <span
-                      style={{
-                        width: 6,
-                        height: 6,
-                        background: "var(--bg)",
-                        borderRadius: "50%",
-                      }}
-                    ></span>
-                  ) : null}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
+function useEnabledProviders(): ProviderDef[] {
+  const settings = useSettingsStore((s) => s.settings);
+  return useMemo(() => {
+    if (!settings) return [PROVIDERS[0]];
+    return PROVIDERS.filter(
+      (p) => p.flag === null || settings.providers[p.flag] === true,
     );
-  }
+  }, [settings]);
+}
+
+function SettingsModel({ t }: { t: Strings }): JSX.Element {
+  const settings = useSettingsStore((s) => s.settings);
+  const update = useSettingsStore((s) => s.update);
+  const enabled = useEnabledProviders();
+
+  if (!settings) return <div className="muted">Loading…</div>;
+
   return (
     <div className="col" style={{ gap: 20 }}>
       <div>
@@ -264,56 +214,198 @@ function SettingsModel({
           {t.s_model_lede}
         </p>
       </div>
-      <Card
-        task={t.s_model_ingest}
-        current={model.ingest}
-        onPick={(id) => setModel({ ...model, ingest: id })}
+      <ModelPicker
+        label={t.s_model_query}
+        providers={enabled}
+        provider={settings.query_provider}
+        model={settings.query_model}
+        onPick={(provider, model) =>
+          void update({ query_provider: provider, query_model: model })
+        }
       />
-      <Card
-        task={t.s_model_query}
-        current={model.query}
-        onPick={(id) => setModel({ ...model, query: id })}
+      <ModelPicker
+        label={t.s_model_ingest}
+        providers={enabled}
+        provider={settings.ingest_provider}
+        model={settings.ingest_model}
+        onPick={(provider, model) =>
+          void update({ ingest_provider: provider, ingest_model: model })
+        }
       />
     </div>
   );
 }
 
-function SettingsProviders({
-  t,
+function ModelPicker({
+  label,
   providers,
-  setProviders,
+  provider,
+  model,
+  onPick,
 }: {
-  t: Strings;
-  providers: SampleProvider[];
-  setProviders: (p: SampleProvider[]) => void;
+  label: string;
+  providers: ProviderDef[];
+  provider: string;
+  model: string;
+  onPick: (provider: string, model: string) => void;
 }): JSX.Element {
-  const [keyOpen, setKeyOpen] = useState<string | null>(null);
-  const [keyVal, setKeyVal] = useState("");
+  const def = providers.find((p) => p.id === provider) ?? providers[0];
+  const [models, setModels] = useState<string[]>(def?.catalog ?? []);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  function toggle(id: string): void {
-    const p = providers.find((x) => x.id === id);
-    if (!p) return;
-    if (p.connected) {
-      setProviders(
-        providers.map((x) => (x.id === id ? { ...x, connected: false } : x)),
-      );
-    } else if (p.kind === "api") {
-      setKeyOpen(id);
+  useEffect(() => {
+    if (!def) return;
+    setModels(def.catalog ?? []);
+    setError(null);
+    // Try live list (ollama, openai, openrouter).
+    if (def.id === "ollama" || def.id === "openai-api" || def.id === "openrouter") {
+      setBusy(true);
+      ipc
+        .listProviderModels(def.id)
+        .then((arr) => {
+          if (arr.length > 0) setModels(arr);
+        })
+        .catch((e: unknown) => setError(String(e)))
+        .finally(() => setBusy(false));
+    }
+  }, [def]);
+
+  if (!def) return <div className="muted">No providers connected.</div>;
+
+  return (
+    <div className="card">
+      <div className="row" style={{ marginBottom: 12 }}>
+        <div style={{ fontWeight: 600 }}>{label}</div>
+        <span className="muted" style={{ marginLeft: "auto", fontSize: 12 }}>
+          {provider} · {model}
+        </span>
+      </div>
+      <div className="row" style={{ gap: 12 }}>
+        <select
+          className="select"
+          value={provider}
+          onChange={(e) => {
+            const next = providers.find((p) => p.id === e.target.value);
+            if (next) onPick(next.id, next.catalog?.[0] ?? model);
+          }}
+          style={{ flex: 1 }}
+        >
+          {providers.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+        <select
+          className="select"
+          value={model}
+          onChange={(e) => onPick(provider, e.target.value)}
+          style={{ flex: 2 }}
+        >
+          {models.length === 0 ? (
+            <option value={model}>{model || "(no models)"}</option>
+          ) : (
+            models.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))
+          )}
+        </select>
+      </div>
+      {busy ? (
+        <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+          fetching model list…
+        </div>
+      ) : null}
+      {error ? (
+        <div style={{ color: "#dc2626", fontSize: 12, marginTop: 6 }}>{error}</div>
+      ) : null}
+    </div>
+  );
+}
+
+function SettingsProviders({ t }: { t: Strings }): JSX.Element {
+  const settings = useSettingsStore((s) => s.settings);
+  const setProviderConnected = useSettingsStore((s) => s.setProviderConnected);
+  const [hasKeys, setHasKeys] = useState<Record<string, boolean>>({});
+  const [keyInputOpen, setKeyInputOpen] = useState<string | null>(null);
+  const [keyVal, setKeyVal] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [cliStatus, setCliStatus] = useState<{
+    installed: boolean;
+    version: string | null;
+  } | null>(null);
+
+  useEffect(() => {
+    ipc.claudeCheck().then(setCliStatus).catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    void (async () => {
+      const map: Record<string, boolean> = {};
+      for (const p of PROVIDERS) {
+        if (p.needsKey) {
+          try {
+            map[p.id] = await ipc.hasProviderKey(p.id);
+          } catch {
+            map[p.id] = false;
+          }
+        }
+      }
+      setHasKeys(map);
+    })();
+  }, []);
+
+  async function saveKey(providerId: string): Promise<void> {
+    if (!keyVal.trim()) return;
+    setBusy(providerId);
+    try {
+      await ipc.setProviderKey(providerId, keyVal.trim());
+      setHasKeys((m) => ({ ...m, [providerId]: true }));
+      const def = PROVIDERS.find((p) => p.id === providerId);
+      if (def?.flag) await setProviderConnected(def.flag, true);
+      setKeyInputOpen(null);
       setKeyVal("");
-    } else {
-      setProviders(
-        providers.map((x) => (x.id === id ? { ...x, connected: true } : x)),
-      );
+    } catch (e) {
+      window.alert(String(e));
+    } finally {
+      setBusy(null);
     }
   }
 
-  function saveKey(): void {
-    setProviders(
-      providers.map((x) =>
-        x.id === keyOpen ? { ...x, connected: true, lastCheck: "just now" } : x,
-      ),
-    );
-    setKeyOpen(null);
+  async function disconnect(providerId: string): Promise<void> {
+    setBusy(providerId);
+    try {
+      await ipc.deleteProviderKey(providerId);
+      setHasKeys((m) => ({ ...m, [providerId]: false }));
+      const def = PROVIDERS.find((p) => p.id === providerId);
+      if (def?.flag) await setProviderConnected(def.flag, false);
+    } catch (e) {
+      window.alert(String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function toggleLocal(providerId: string): Promise<void> {
+    const def = PROVIDERS.find((p) => p.id === providerId);
+    if (!def || !def.flag) return;
+    const next = !(settings?.providers[def.flag] ?? false);
+    if (next && providerId === "ollama") {
+      // Ping ollama to verify
+      setBusy(providerId);
+      try {
+        await ipc.listProviderModels(providerId);
+      } catch (e) {
+        window.alert(`Ollama not reachable: ${String(e)}`);
+        setBusy(null);
+        return;
+      }
+      setBusy(null);
+    }
+    await setProviderConnected(def.flag, next);
   }
 
   return (
@@ -325,109 +417,148 @@ function SettingsProviders({
         </p>
       </div>
       <div className="col" style={{ gap: 10 }}>
-        {providers.map((p) => (
-          <div
-            key={p.id}
-            className="card"
-            style={{
-              display: "grid",
-              gridTemplateColumns: "auto 1fr auto",
-              gap: 14,
-              alignItems: "center",
-              padding: 14,
-            }}
-          >
-            <span
+        {PROVIDERS.map((p) => {
+          const connected =
+            p.id === "anthropic-cli"
+              ? cliStatus?.installed === true
+              : p.needsKey
+                ? hasKeys[p.id] === true
+                : (settings?.providers[p.flag as keyof MemexSettings["providers"]] ?? false);
+          return (
+            <div
+              key={p.id}
+              className="card"
               style={{
-                width: 36,
-                height: 36,
-                borderRadius: 8,
-                background: "var(--bg-soft)",
-                border: "1px solid var(--line)",
                 display: "grid",
-                placeItems: "center",
-                color: "var(--ink-2)",
+                gridTemplateColumns: "auto 1fr auto",
+                gap: 14,
+                alignItems: "center",
+                padding: 14,
               }}
             >
-              <ProviderGlyph id={p.id as ProviderId} size={18} />
-            </span>
-            <div>
-              <div className="row" style={{ gap: 8 }}>
-                <span style={{ fontWeight: 600 }}>{p.name}</span>
-                <span className="chip" style={{ background: "var(--bg-soft)" }}>
-                  {p.kind}
-                </span>
-                {p.connected ? (
-                  <span
-                    className="chip"
-                    style={{ background: "rgba(22,163,74,0.1)", color: "var(--c-entity)" }}
-                  >
-                    ● {t.s_provider_connected}
+              <span
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 8,
+                  background: "var(--bg-soft)",
+                  border: "1px solid var(--line)",
+                  display: "grid",
+                  placeItems: "center",
+                  color: "var(--ink-2)",
+                }}
+              >
+                <ProviderGlyph id={p.id} size={18} />
+              </span>
+              <div>
+                <div className="row" style={{ gap: 8 }}>
+                  <span style={{ fontWeight: 600 }}>{p.name}</span>
+                  <span className="chip" style={{ background: "var(--bg-soft)" }}>
+                    {p.kind}
                   </span>
-                ) : (
-                  <span className="chip">○ {t.s_provider_disconnected}</span>
-                )}
-                {p.connected && p.lastCheck ? (
-                  <span className="muted" style={{ fontSize: 12 }}>
-                    checked {p.lastCheck}
-                  </span>
+                  {connected ? (
+                    <span
+                      className="chip"
+                      style={{
+                        background: "rgba(22,163,74,0.1)",
+                        color: "var(--c-entity)",
+                      }}
+                    >
+                      ● {t.s_provider_connected}
+                    </span>
+                  ) : (
+                    <span className="chip">○ {t.s_provider_disconnected}</span>
+                  )}
+                  {p.id === "anthropic-cli" && cliStatus?.version ? (
+                    <span className="muted" style={{ fontSize: 12 }}>
+                      {cliStatus.version}
+                    </span>
+                  ) : null}
+                </div>
+                <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
+                  {p.desc}
+                </div>
+                {keyInputOpen === p.id ? (
+                  <div className="row" style={{ marginTop: 10, gap: 8 }}>
+                    <Icon name="key" size={14} />
+                    <input
+                      className="input"
+                      placeholder={
+                        p.id.startsWith("anthropic")
+                          ? "sk-ant-…"
+                          : p.id.startsWith("openai")
+                            ? "sk-…"
+                            : "Paste API key"
+                      }
+                      value={keyVal}
+                      onChange={(e) => setKeyVal(e.target.value)}
+                      style={{
+                        flex: 1,
+                        fontFamily: "var(--font-mono)",
+                        fontSize: 13,
+                      }}
+                      type="password"
+                    />
+                    <button
+                      className="btn btn-primary"
+                      onClick={() => void saveKey(p.id)}
+                      disabled={!keyVal.trim() || busy === p.id}
+                    >
+                      Save
+                    </button>
+                    <button
+                      className="btn-ghost btn"
+                      onClick={() => {
+                        setKeyInputOpen(null);
+                        setKeyVal("");
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
                 ) : null}
               </div>
-              <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-                {p.desc}
-              </div>
-              {keyOpen === p.id ? (
-                <div className="row" style={{ marginTop: 10, gap: 8 }}>
-                  <Icon name="key" size={14} />
-                  <input
-                    className="input"
-                    placeholder={
-                      p.id.startsWith("anthropic")
-                        ? "sk-ant-…"
-                        : p.id.startsWith("openai")
-                          ? "sk-…"
-                          : "Paste API key"
-                    }
-                    value={keyVal}
-                    onChange={(e) => setKeyVal(e.target.value)}
-                    style={{ flex: 1, fontFamily: "var(--font-mono)", fontSize: 13 }}
-                  />
+              <div style={{ display: "flex", gap: 6 }}>
+                {p.id === "anthropic-cli" ? null : p.needsKey ? (
+                  connected ? (
+                    <button
+                      className="btn"
+                      onClick={() => void disconnect(p.id)}
+                      disabled={busy === p.id}
+                    >
+                      {t.s_provider_disconnect}
+                    </button>
+                  ) : (
+                    <button
+                      className="btn btn-primary"
+                      onClick={() => setKeyInputOpen(p.id)}
+                      disabled={busy === p.id}
+                    >
+                      {t.s_provider_connect}
+                    </button>
+                  )
+                ) : (
                   <button
-                    className="btn btn-primary"
-                    onClick={saveKey}
-                    disabled={!keyVal.trim()}
+                    className={"btn" + (connected ? "" : " btn-primary")}
+                    onClick={() => void toggleLocal(p.id)}
+                    disabled={busy === p.id}
                   >
-                    Save
+                    {connected ? t.s_provider_disconnect : t.s_provider_connect}
                   </button>
-                  <button className="btn-ghost btn" onClick={() => setKeyOpen(null)}>
-                    Cancel
-                  </button>
-                </div>
-              ) : null}
+                )}
+              </div>
             </div>
-            <div style={{ display: "flex", gap: 6 }}>
-              {p.connected ? (
-                <button className="btn-ghost btn">{t.s_provider_test}</button>
-              ) : null}
-              <button
-                className={"btn" + (p.connected ? "" : " btn-primary")}
-                onClick={() => toggle(p.id)}
-              >
-                {p.connected ? t.s_provider_disconnect : t.s_provider_connect}
-              </button>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
       <div
         className="card-flat"
-        style={{ display: "flex", gap: 12, alignItems: "flex-start", marginTop: 4 }}
+        style={{ display: "flex", gap: 12, alignItems: "flex-start" }}
       >
-        <Icon name="terminal" size={16} />
+        <Icon name="shield" size={16} />
         <div style={{ fontSize: 13.5, color: "var(--ink-3)" }}>
-          The <b style={{ color: "var(--ink)" }}>Claude Code CLI</b> connection uses your existing
-          subscription — no API key needed. Memex shells out to{" "}
-          <code style={{ fontFamily: "var(--font-mono)" }}>claude</code> on your machine.
+          API keys are stored in your OS keychain (macOS Keychain / Windows
+          Credential Manager / Secret Service), not in plaintext on disk.
         </div>
       </div>
     </div>
@@ -443,7 +574,6 @@ function SettingsLang({
   lang: Lang;
   setLang: (l: Lang) => void;
 }): JSX.Element {
-  const [draftLang, setDraftLang] = useState<Lang | "auto">(lang);
   const opts: { id: Lang; name: string; native: string }[] = [
     { id: "en", name: "English", native: "English" },
     { id: "ko", name: "Korean", native: "한국어" },
@@ -503,47 +633,11 @@ function SettingsLang({
                     borderRadius: "50%",
                     border: `1.5px solid ${sel ? "var(--ink)" : "var(--line-strong)"}`,
                     background: sel ? "var(--ink)" : "transparent",
-                    display: "grid",
-                    placeItems: "center",
                   }}
-                >
-                  {sel ? (
-                    <span
-                      style={{
-                        width: 6,
-                        height: 6,
-                        background: "var(--bg)",
-                        borderRadius: "50%",
-                      }}
-                    ></span>
-                  ) : null}
-                </span>
+                />
               </button>
             );
           })}
-        </div>
-      </div>
-      <div className="card">
-        <div style={{ fontWeight: 600, marginBottom: 6 }}>{t.s_lang_drafts}</div>
-        <p className="muted" style={{ fontSize: 13, margin: "0 0 10px" }}>
-          Claude will write source pages, summaries and answers in this language.
-        </p>
-        <div className="segmented" style={{ width: "fit-content" }}>
-          {opts.map((o) => (
-            <button
-              key={o.id}
-              className={draftLang === o.id ? "active" : ""}
-              onClick={() => setDraftLang(o.id)}
-            >
-              {o.native}
-            </button>
-          ))}
-          <button
-            onClick={() => setDraftLang("auto")}
-            className={draftLang === "auto" ? "active" : ""}
-          >
-            Auto
-          </button>
         </div>
       </div>
     </div>
@@ -606,16 +700,7 @@ function SettingsAppearance({
                     background: isDark ? "#2c2c2c" : "#e9e8e4",
                     borderRadius: 4,
                   }}
-                ></div>
-                <div
-                  style={{
-                    width: "55%",
-                    height: 8,
-                    background: isDark ? "#2c2c2c" : "#e9e8e4",
-                    borderRadius: 4,
-                    marginTop: 6,
-                  }}
-                ></div>
+                />
                 <div
                   style={{
                     width: 40,
@@ -624,7 +709,7 @@ function SettingsAppearance({
                     borderRadius: 4,
                     marginTop: 14,
                   }}
-                ></div>
+                />
                 <div style={{ position: "absolute", top: 10, right: 10 }}>
                   <Icon name={o.icon} size={16} />
                 </div>
@@ -637,15 +722,6 @@ function SettingsAppearance({
                   gap: 8,
                 }}
               >
-                <span
-                  style={{
-                    width: 14,
-                    height: 14,
-                    borderRadius: "50%",
-                    border: `1.5px solid ${sel ? "var(--ink)" : "var(--line-strong)"}`,
-                    background: sel ? "var(--ink)" : "transparent",
-                  }}
-                ></span>
                 <span style={{ fontWeight: 500 }}>{o.label}</span>
               </div>
             </button>
@@ -662,7 +738,6 @@ function SettingsAbout({ t }: { t: Strings }): JSX.Element {
       <h2 style={{ fontSize: 22, fontWeight: 600, margin: 0 }}>{t.s_about}</h2>
       <div className="card" style={{ padding: 24, display: "flex", gap: 18, alignItems: "center" }}>
         <span style={{ width: 64, height: 64, color: "var(--ink)", display: "block" }}>
-          {/* Inline mark to avoid extra import */}
           <svg width="64" height="64" viewBox="0 0 240 240">
             <g fill="currentColor">
               <rect x="70" y="40" width="20" height="40" />
@@ -681,7 +756,7 @@ function SettingsAbout({ t }: { t: Strings }): JSX.Element {
         <div>
           <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: "-0.01em" }}>Memex</div>
           <div className="muted" style={{ fontSize: 13 }}>
-            v0.2.0 · build 2026.05.09
+            v0.2.0 · build 2026.05.13
           </div>
           <p style={{ fontSize: 14, marginTop: 8, color: "var(--ink-2)", maxWidth: 520 }}>
             {t.s_about_built}

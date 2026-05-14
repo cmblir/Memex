@@ -6,9 +6,9 @@ import { useEffect, useRef, useState } from "react";
 import type { JSX } from "react";
 import { Icon } from "../lib/icons";
 import type { Strings } from "../lib/i18n";
-import { ipc } from "../lib/ipc";
-import type { ClaudeStatus } from "../lib/ipc";
 import { useVaultStore } from "../stores/vaultStore";
+import { useSettingsStore } from "../stores/settingsStore";
+import { complete } from "../lib/chat";
 
 interface ChatTurn {
   q: string;
@@ -24,15 +24,11 @@ comes from a vault file, cite it inline as [[page-stem]].`;
 
 export default function PageQuery({ t }: { t: Strings }): JSX.Element {
   const currentVault = useVaultStore((s) => s.currentVault);
-  const [status, setStatus] = useState<ClaudeStatus | null>(null);
+  const settings = useSettingsStore((s) => s.settings);
   const [q, setQ] = useState("");
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [busy, setBusy] = useState(false);
   const endRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    ipc.claudeCheck().then(setStatus).catch(() => undefined);
-  }, []);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -46,16 +42,22 @@ export default function PageQuery({ t }: { t: Strings }): JSX.Element {
     const pending: ChatTurn = { q: question, a: "" };
     setTurns((prev) => [...prev, pending]);
     try {
-      const prompt = `${SYSTEM_PREAMBLE}\n\nQuestion:\n${question}`;
-      const res = await ipc.claudeRun(prompt, currentVault.path);
+      const content = await complete({
+        task: "query",
+        cwd: currentVault.path,
+        messages: [
+          { role: "system", content: SYSTEM_PREAMBLE },
+          ...turns.flatMap((p) => [
+            { role: "user" as const, content: p.q },
+            { role: "assistant" as const, content: p.a },
+          ]),
+          { role: "user", content: question },
+        ],
+      });
       setTurns((prev) =>
         prev.map((turn, i) =>
           i === prev.length - 1
-            ? {
-                ...turn,
-                a: res.stdout.trim() || res.stderr.trim() || "(empty response)",
-                error: res.status !== 0 ? `exit ${res.status}` : undefined,
-              }
+            ? { ...turn, a: content || "(empty response)" }
             : turn,
         ),
       );
@@ -78,34 +80,6 @@ export default function PageQuery({ t }: { t: Strings }): JSX.Element {
         <p className="page-lede">{t.q_lede}</p>
       </header>
 
-      {status && !status.installed ? (
-        <div
-          className="card-flat"
-          style={{
-            marginTop: 12,
-            display: "flex",
-            gap: 12,
-            alignItems: "flex-start",
-            color: "var(--ink-3)",
-          }}
-        >
-          <Icon name="info" size={16} />
-          <div style={{ fontSize: 13.5 }}>
-            <code style={{ fontFamily: "var(--font-mono)" }}>claude</code> CLI
-            not detected on PATH. Install instructions:{" "}
-            <a
-              href="https://docs.claude.com/en/docs/claude-code"
-              target="_blank"
-              rel="noreferrer"
-              style={{ color: "var(--ink)" }}
-            >
-              docs.claude.com/claude-code
-            </a>
-            .
-          </div>
-        </div>
-      ) : null}
-
       <div
         className="card"
         style={{
@@ -126,16 +100,24 @@ export default function PageQuery({ t }: { t: Strings }): JSX.Element {
           onKeyDown={(e) => {
             if (e.key === "Enter") void ask();
           }}
-          disabled={busy || !status?.installed || !currentVault}
+          disabled={busy || !currentVault}
         />
         <button
           className="btn btn-primary"
           onClick={() => void ask()}
-          disabled={busy || !status?.installed || !currentVault || !q.trim()}
+          disabled={busy || !currentVault || !q.trim()}
         >
           {busy ? "…" : t.q_send}
         </button>
       </div>
+      {settings ? (
+        <div
+          className="muted"
+          style={{ fontSize: 12, marginTop: 6 }}
+        >
+          via {settings.query_provider} · {settings.query_model}
+        </div>
+      ) : null}
 
       <div className="col" style={{ marginTop: 24, gap: 16 }}>
         {turns.map((turn, i) => (

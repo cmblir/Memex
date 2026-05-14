@@ -8,6 +8,9 @@ pub mod git_log;
 pub mod index;
 pub mod parser;
 pub mod provenance;
+pub mod providers;
+pub mod secrets;
+pub mod settings;
 pub mod vault;
 
 pub fn run() {
@@ -29,6 +32,13 @@ pub fn run() {
             commands::claude_run,
             commands::claude_check,
             commands::scan_provenance,
+            commands::set_provider_key,
+            commands::delete_provider_key,
+            commands::has_provider_key,
+            commands::get_settings,
+            commands::set_settings,
+            commands::chat_complete,
+            commands::list_provider_models,
         ])
         .setup(|_app| Ok(()))
         .run(tauri::generate_context!())

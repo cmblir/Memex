@@ -7,6 +7,9 @@ use crate::git_log::{self, Commit};
 use crate::index::{self, Adjacency};
 use crate::parser;
 use crate::provenance::{self, ProvenanceRow};
+use crate::providers::{self, ChatRequest, ChatResponse};
+use crate::secrets;
+use crate::settings::{self, Settings};
 use crate::vault::{self, FileContent, FileNode, VaultMeta};
 
 #[tauri::command]
@@ -84,4 +87,49 @@ pub async fn claude_run(prompt: String, cwd: String) -> Result<CliResult, String
 #[tauri::command]
 pub fn scan_provenance(vault_path: String) -> Result<Vec<ProvenanceRow>, String> {
     provenance::scan_provenance(&vault_path)
+}
+
+#[tauri::command]
+pub fn set_provider_key(provider_id: String, key: String) -> Result<(), String> {
+    secrets::set_key(&provider_id, &key)
+}
+
+#[tauri::command]
+pub fn delete_provider_key(provider_id: String) -> Result<(), String> {
+    secrets::delete_key(&provider_id)
+}
+
+#[tauri::command]
+pub fn has_provider_key(provider_id: String) -> Result<bool, String> {
+    Ok(secrets::get_key(&provider_id)?.is_some())
+}
+
+#[tauri::command]
+pub fn get_settings() -> Settings {
+    settings::load()
+}
+
+#[tauri::command]
+pub fn set_settings(value: Settings) -> Result<(), String> {
+    settings::save(&value)
+}
+
+#[tauri::command]
+pub async fn chat_complete(request: ChatRequest) -> Result<ChatResponse, String> {
+    let key = if request.provider_id == "ollama" {
+        None
+    } else {
+        secrets::get_key(&request.provider_id)?
+    };
+    providers::chat_complete(request, key).await
+}
+
+#[tauri::command]
+pub async fn list_provider_models(provider_id: String) -> Result<Vec<String>, String> {
+    let key = if provider_id == "ollama" {
+        None
+    } else {
+        secrets::get_key(&provider_id)?
+    };
+    providers::list_models(&provider_id, key).await
 }

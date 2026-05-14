@@ -1,13 +1,14 @@
 // Ingest page — drop a file or paste raw text, then call `claude` to write
 // it into `raw/<slug>.md` and ingest into the wiki per CLAUDE.md instructions.
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { JSX } from "react";
 import { Icon } from "../lib/icons";
 import type { Strings } from "../lib/i18n";
 import { ipc } from "../lib/ipc";
-import type { ClaudeStatus } from "../lib/ipc";
 import { useVaultStore } from "../stores/vaultStore";
+import { useSettingsStore } from "../stores/settingsStore";
+import { complete } from "../lib/chat";
 
 type Stage = "idle" | "writing-raw" | "claude" | "done" | "error";
 
@@ -37,18 +38,14 @@ export default function PageIngest({ t }: { t: Strings }): JSX.Element {
   const currentVault = useVaultStore((s) => s.currentVault);
   const refreshTree = useVaultStore((s) => s.refreshTree);
   const refreshLinkGraph = useVaultStore((s) => s.refreshLinkGraph);
-  const [status, setStatus] = useState<ClaudeStatus | null>(null);
+  const settings = useSettingsStore((s) => s.settings);
   const [over, setOver] = useState(false);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [stage, setStage] = useState<Stage>("idle");
   const [log, setLog] = useState<string>("");
 
-  useEffect(() => {
-    ipc.claudeCheck().then(setStatus).catch(() => undefined);
-  }, []);
-
-  const canRun = currentVault && status?.installed && (title.trim() || body.trim());
+  const canRun = !!currentVault && (title.trim() || body.trim());
 
   async function run(): Promise<void> {
     if (!canRun || !currentVault) return;
@@ -57,7 +54,6 @@ export default function PageIngest({ t }: { t: Strings }): JSX.Element {
     setStage("writing-raw");
     setLog(`Writing raw/${slug}.md…`);
     try {
-      // Ensure raw/ exists, then write the source.
       const rawDir = `${currentVault.path}/raw`;
       try {
         await ipc.createFolder(currentVault.path, "raw");
@@ -72,16 +68,15 @@ export default function PageIngest({ t }: { t: Strings }): JSX.Element {
       await refreshTree();
 
       setStage("claude");
-      setLog((l) => `${l}\nInvoking claude…`);
-      const res = await ipc.claudeRun(
-        INGEST_PROMPT(slug, finalTitle),
-        currentVault.path,
-      );
-      setLog((l) => `${l}\n\n${res.stdout || res.stderr}`);
-      if (res.status !== 0) {
-        setStage("error");
-        return;
-      }
+      setLog((l) => `${l}\nInvoking model…`);
+      const out = await complete({
+        task: "ingest",
+        cwd: currentVault.path,
+        messages: [
+          { role: "user", content: INGEST_PROMPT(slug, finalTitle) },
+        ],
+      });
+      setLog((l) => `${l}\n\n${out}`);
       await refreshTree();
       void refreshLinkGraph();
       setStage("done");
@@ -113,11 +108,9 @@ export default function PageIngest({ t }: { t: Strings }): JSX.Element {
         <p className="page-lede">{t.ing_lede}</p>
       </header>
 
-      {status && !status.installed ? (
-        <div className="card-flat" style={{ marginTop: 12 }}>
-          <Icon name="info" size={14} />{" "}
-          <code style={{ fontFamily: "var(--font-mono)" }}>claude</code> CLI not
-          detected. Install it before running ingest.
+      {settings ? (
+        <div className="muted" style={{ fontSize: 12, marginTop: 12 }}>
+          via {settings.ingest_provider} · {settings.ingest_model}
         </div>
       ) : null}
 
@@ -169,7 +162,8 @@ export default function PageIngest({ t }: { t: Strings }): JSX.Element {
 
           <div className="row">
             <span className="chip">
-              <Icon name="bolt" size={11} /> Claude CLI
+              <Icon name="bolt" size={11} />{" "}
+              {settings?.ingest_model ?? "claude-cli"}
             </span>
             <span className="muted" style={{ fontSize: 12 }}>
               vault: {currentVault?.path ?? "(none)"}

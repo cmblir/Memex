@@ -58,6 +58,35 @@ export interface ProvenanceRow {
   total: number;
 }
 
+export interface MemexSettings {
+  providers: {
+    anthropic_api: boolean;
+    openai_api: boolean;
+    google_api: boolean;
+    ollama: boolean;
+    openrouter: boolean;
+  };
+  query_provider: string;
+  query_model: string;
+  ingest_provider: string;
+  ingest_model: string;
+}
+
+export interface ChatRequest {
+  provider_id: string;
+  model: string;
+  messages: { role: "system" | "user" | "assistant"; content: string }[];
+  temperature?: number;
+  max_tokens?: number;
+}
+
+export interface ChatResponse {
+  provider_id: string;
+  model: string;
+  content: string;
+  usage: { input_tokens: number; output_tokens: number } | null;
+}
+
 export const ipc = {
   openVault: (path: string) => invoke<VaultMeta>("open_vault", { path }),
   ensureDefaultVault: () => invoke<string>("ensure_default_vault"),
@@ -86,4 +115,16 @@ export const ipc = {
     invoke<ClaudeResult>("claude_run", { prompt, cwd }),
   scanProvenance: (vaultPath: string) =>
     invoke<ProvenanceRow[]>("scan_provenance", { vaultPath }),
+  setProviderKey: (providerId: string, key: string) =>
+    invoke<null>("set_provider_key", { providerId, key }),
+  deleteProviderKey: (providerId: string) =>
+    invoke<null>("delete_provider_key", { providerId }),
+  hasProviderKey: (providerId: string) =>
+    invoke<boolean>("has_provider_key", { providerId }),
+  getSettings: () => invoke<MemexSettings>("get_settings"),
+  setSettings: (value: MemexSettings) => invoke<null>("set_settings", { value }),
+  chatComplete: (request: ChatRequest) =>
+    invoke<ChatResponse>("chat_complete", { request }),
+  listProviderModels: (providerId: string) =>
+    invoke<string[]>("list_provider_models", { providerId }),
 };
