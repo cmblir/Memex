@@ -6,6 +6,7 @@ pub mod claude;
 mod commands;
 pub mod git_log;
 pub mod index;
+pub mod ollama;
 pub mod parser;
 pub mod provenance;
 pub mod providers;
@@ -39,6 +40,9 @@ pub fn run() {
             commands::set_settings,
             commands::chat_complete,
             commands::list_provider_models,
+            commands::ollama_status,
+            commands::ollama_install_url,
+            commands::open_external,
         ])
         .setup(|_app| Ok(()))
         .run(tauri::generate_context!())

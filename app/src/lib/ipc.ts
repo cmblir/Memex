@@ -87,6 +87,21 @@ export interface ChatResponse {
   usage: { input_tokens: number; output_tokens: number } | null;
 }
 
+export interface OllamaModelInfo {
+  name: string;
+  size: number;
+}
+
+export interface OllamaStatus {
+  binary_installed: boolean;
+  binary_path: string | null;
+  version: string | null;
+  daemon_running: boolean;
+  endpoint: string;
+  models: OllamaModelInfo[];
+  error: string | null;
+}
+
 export const ipc = {
   openVault: (path: string) => invoke<VaultMeta>("open_vault", { path }),
   ensureDefaultVault: () => invoke<string>("ensure_default_vault"),
@@ -127,4 +142,7 @@ export const ipc = {
     invoke<ChatResponse>("chat_complete", { request }),
   listProviderModels: (providerId: string) =>
     invoke<string[]>("list_provider_models", { providerId }),
+  ollamaStatus: () => invoke<OllamaStatus>("ollama_status"),
+  ollamaInstallUrl: () => invoke<string>("ollama_install_url"),
+  openExternal: (url: string) => invoke<null>("open_external", { url }),
 };

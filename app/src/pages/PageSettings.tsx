@@ -12,7 +12,8 @@ import type { Theme } from "../stores/uiStore";
 import { useVaultStore } from "../stores/vaultStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { ipc } from "../lib/ipc";
-import type { MemexSettings } from "../lib/ipc";
+import type { MemexSettings, OllamaStatus } from "../lib/ipc";
+import OllamaSetup from "../components/OllamaSetup";
 
 export interface ProviderDef {
   id: ProviderId;
@@ -337,9 +338,18 @@ function SettingsProviders({ t }: { t: Strings }): JSX.Element {
     installed: boolean;
     version: string | null;
   } | null>(null);
+  const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus | null>(null);
+
+  function refreshOllama(): void {
+    ipc
+      .ollamaStatus()
+      .then(setOllamaStatus)
+      .catch(() => undefined);
+  }
 
   useEffect(() => {
     ipc.claudeCheck().then(setCliStatus).catch(() => undefined);
+    refreshOllama();
   }, []);
 
   useEffect(() => {
@@ -421,9 +431,66 @@ function SettingsProviders({ t }: { t: Strings }): JSX.Element {
           const connected =
             p.id === "anthropic-cli"
               ? cliStatus?.installed === true
-              : p.needsKey
-                ? hasKeys[p.id] === true
-                : (settings?.providers[p.flag as keyof MemexSettings["providers"]] ?? false);
+              : p.id === "ollama"
+                ? ollamaStatus?.daemon_running === true &&
+                  ollamaStatus.models.length > 0
+                : p.needsKey
+                  ? hasKeys[p.id] === true
+                  : (settings?.providers[p.flag as keyof MemexSettings["providers"]] ?? false);
+          if (p.id === "ollama") {
+            return (
+              <div
+                key={p.id}
+                className="card"
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "auto 1fr",
+                  gap: 14,
+                  alignItems: "flex-start",
+                  padding: 14,
+                }}
+              >
+                <span
+                  style={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: 8,
+                    background: "var(--bg-soft)",
+                    border: "1px solid var(--line)",
+                    display: "grid",
+                    placeItems: "center",
+                    color: "var(--ink-2)",
+                  }}
+                >
+                  <ProviderGlyph id={p.id} size={18} />
+                </span>
+                <div>
+                  <div className="row" style={{ gap: 8, marginBottom: 4 }}>
+                    <span style={{ fontWeight: 600 }}>{p.name}</span>
+                    <span className="chip" style={{ background: "var(--bg-soft)" }}>
+                      {p.kind}
+                    </span>
+                  </div>
+                  <div
+                    className="muted"
+                    style={{ fontSize: 13, marginBottom: 12 }}
+                  >
+                    {p.desc}
+                  </div>
+                  {ollamaStatus ? (
+                    <OllamaSetup
+                      status={ollamaStatus}
+                      refresh={refreshOllama}
+                    />
+                  ) : (
+                    <div className="muted" style={{ fontSize: 13 }}>
+                      checking ollama…
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          }
           return (
             <div
               key={p.id}

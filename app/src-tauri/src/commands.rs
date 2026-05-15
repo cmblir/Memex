@@ -5,6 +5,7 @@
 use crate::claude::{self, CliResult, CliStatus};
 use crate::git_log::{self, Commit};
 use crate::index::{self, Adjacency};
+use crate::ollama::{self, OllamaStatus};
 use crate::parser;
 use crate::provenance::{self, ProvenanceRow};
 use crate::providers::{self, ChatRequest, ChatResponse};
@@ -132,4 +133,31 @@ pub async fn list_provider_models(provider_id: String) -> Result<Vec<String>, St
         secrets::get_key(&provider_id)?
     };
     providers::list_models(&provider_id, key).await
+}
+
+#[tauri::command]
+pub async fn ollama_status() -> OllamaStatus {
+    ollama::check().await
+}
+
+#[tauri::command]
+pub fn ollama_install_url() -> &'static str {
+    ollama::install_url()
+}
+
+/// Opens an external URL in the user's default browser via `open` (macOS),
+/// `xdg-open` (Linux), or `start` (Windows). Used by the Ollama setup card
+/// to take the user to the install page.
+#[tauri::command]
+pub fn open_external(url: String) -> Result<(), String> {
+    let cmd = if cfg!(target_os = "macos") {
+        std::process::Command::new("open").arg(&url).spawn()
+    } else if cfg!(target_os = "windows") {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", &url])
+            .spawn()
+    } else {
+        std::process::Command::new("xdg-open").arg(&url).spawn()
+    };
+    cmd.map(|_| ()).map_err(|e| format!("open failed: {e}"))
 }
