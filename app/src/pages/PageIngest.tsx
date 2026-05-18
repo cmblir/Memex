@@ -9,15 +9,8 @@ import type { Strings } from "../lib/i18n";
 import { ipc } from "../lib/ipc";
 import { useVaultStore } from "../stores/vaultStore";
 import { useSettingsStore } from "../stores/settingsStore";
+import { useIngestStore } from "../stores/ingestStore";
 import { complete } from "../lib/chat";
-
-type Stage =
-  | "idle"
-  | "writing-raw"
-  | "claude"
-  | "indexing"
-  | "done"
-  | "error";
 
 const INGEST_PROMPT = (slug: string, title: string) =>
   `New source has been added at \`raw/${slug}.md\` (title: "${title}"). Please ingest it into the wiki following the workflow in CLAUDE.md:
@@ -49,12 +42,20 @@ export default function PageIngest({ t }: { t: Strings }): JSX.Element {
   const [over, setOver] = useState(false);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
-  const [stage, setStage] = useState<Stage>("idle");
-  const [log, setLog] = useState<string>("");
   const [dropError, setDropError] = useState<string | null>(null);
-  const [startedAt, setStartedAt] = useState<number | null>(null);
-  const [finishedAt, setFinishedAt] = useState<number | null>(null);
-  const [reportPath, setReportPath] = useState<string | null>(null);
+  const stage = useIngestStore((s) => s.stage);
+  const log = useIngestStore((s) => s.log);
+  const startedAt = useIngestStore((s) => s.startedAt);
+  const finishedAt = useIngestStore((s) => s.finishedAt);
+  const reportPath = useIngestStore((s) => s.reportPath);
+  const storedVaultPath = useIngestStore((s) => s.vaultPath);
+  const setStage = useIngestStore((s) => s.setStage);
+  const setLog = useIngestStore((s) => s.setLog);
+  const setStartedAt = useIngestStore((s) => s.setStartedAt);
+  const setFinishedAt = useIngestStore((s) => s.setFinishedAt);
+  const setReportPath = useIngestStore((s) => s.setReportPath);
+  const setStoredVaultPath = useIngestStore((s) => s.setVaultPath);
+  const resetIngest = useIngestStore((s) => s.reset);
 
   // Tauri intercepts drag-drop at the OS level (so the browser drop event
   // never fires inside the WebView). Subscribe to its native event instead
@@ -113,6 +114,7 @@ export default function PageIngest({ t }: { t: Strings }): JSX.Element {
     const finalTitle = title.trim() || `untitled-${Date.now()}`;
     const slug = slugify(finalTitle);
     const start = Date.now();
+    setStoredVaultPath(currentVault.path);
     setStartedAt(start);
     setFinishedAt(null);
     setReportPath(null);
@@ -158,14 +160,10 @@ export default function PageIngest({ t }: { t: Strings }): JSX.Element {
   }
 
   function resetForAnother(): void {
-    setStage("idle");
+    resetIngest();
     setTitle("");
     setBody("");
-    setLog("");
     setDropError(null);
-    setStartedAt(null);
-    setFinishedAt(null);
-    setReportPath(null);
   }
 
   function formatElapsed(ms: number): string {
@@ -255,10 +253,11 @@ export default function PageIngest({ t }: { t: Strings }): JSX.Element {
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button
               className="btn"
-              onClick={() =>
-                void ipc.openExternal(`${currentVault?.path}/wiki/index.md`)
-              }
-              disabled={!currentVault}
+              onClick={() => {
+                const root = storedVaultPath ?? currentVault?.path;
+                if (root) void ipc.openExternal(`${root}/wiki/index.md`);
+              }}
+              disabled={!storedVaultPath && !currentVault}
             >
               {t.ing_open_index}
             </button>
