@@ -50,7 +50,13 @@ export default function PageIngest({ t }: { t: Strings }): JSX.Element {
   // Tauri intercepts drag-drop at the OS level (so the browser drop event
   // never fires inside the WebView). Subscribe to its native event instead
   // and read the file via Rust IPC — we get a real path + UTF-8 contents.
+  //
+  // Subscription is set up exactly once per mount. `cancelled` handles the
+  // race where the user navigates away before onDragDropEvent resolves;
+  // the functional setState for title avoids re-subscribing on every
+  // keystroke.
   useEffect(() => {
+    let cancelled = false;
     let unlisten: (() => void) | null = null;
     void (async () => {
       const webview = getCurrentWebview();
@@ -69,10 +75,8 @@ export default function PageIngest({ t }: { t: Strings }): JSX.Element {
           if (paths.length === 0) return;
           const first = paths[0];
           setDropError(null);
-          if (!title) {
-            const base = first.split(/[\\/]/).pop() ?? "";
-            setTitle(base.replace(/\.[^.]+$/, ""));
-          }
+          const base = first.split(/[\\/]/).pop() ?? "";
+          setTitle((prev) => prev || base.replace(/\.[^.]+$/, ""));
           try {
             const text = await ipc.readExternalText(first);
             setBody(text);
@@ -81,12 +85,17 @@ export default function PageIngest({ t }: { t: Strings }): JSX.Element {
           }
         }
       });
-      unlisten = u;
+      if (cancelled) {
+        u();
+      } else {
+        unlisten = u;
+      }
     })();
     return () => {
+      cancelled = true;
       if (unlisten) unlisten();
     };
-  }, [title]);
+  }, []);
 
   const canRun = !!currentVault && (title.trim() || body.trim());
 

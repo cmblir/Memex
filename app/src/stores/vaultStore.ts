@@ -7,6 +7,12 @@ import type { Adjacency, FileContent, FileNode, VaultMeta } from "../lib/ipc";
 
 const LAST_VAULT_KEY = "memex.lastVaultPath";
 
+// Monotonic counter to guard against race conditions when openVault or
+// refreshLinkGraph is called multiple times in quick succession. Only the
+// latest invocation is allowed to commit its results to the store.
+let openSeq = 0;
+let refreshSeq = 0;
+
 export interface VaultState {
   currentVault: VaultMeta | null;
   fileTree: FileNode[];
@@ -36,11 +42,13 @@ export const useVaultStore = create<VaultState>((set, get) => ({
   error: null,
 
   async openVault(path) {
+    const seq = ++openSeq;
     set({ isLoading: true, error: null });
     try {
       const meta = await ipc.openVault(path);
       const tree = await ipc.listFiles(meta.path);
       const adjacency = await ipc.buildLinkGraph(meta.path);
+      if (seq !== openSeq) return; // a newer openVault won; discard.
       set({
         currentVault: meta,
         fileTree: tree,
@@ -54,6 +62,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
         /* localStorage unavailable */
       }
     } catch (err) {
+      if (seq !== openSeq) return;
       set({ error: errorMessage(err), isLoading: false });
     }
   },
@@ -61,10 +70,16 @@ export const useVaultStore = create<VaultState>((set, get) => ({
   async refreshLinkGraph() {
     const vault = get().currentVault;
     if (!vault) return;
+    const seq = ++refreshSeq;
     try {
       const adjacency = await ipc.buildLinkGraph(vault.path);
+      // Discard if the user switched vaults during the rebuild, or if
+      // another refresh has been kicked off after this one.
+      if (seq !== refreshSeq) return;
+      if (get().currentVault?.path !== vault.path) return;
       set({ adjacency });
     } catch (err) {
+      if (seq !== refreshSeq) return;
       set({ error: errorMessage(err) });
     }
   },
