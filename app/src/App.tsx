@@ -84,27 +84,33 @@ export default function App(): JSX.Element {
     return () => window.removeEventListener("keydown", onKey);
   }, [toggleCmd, toggleSidebar]);
 
-  // Auto-restore or create default vault on first mount. If the saved
-  // path no longer exists (user deleted the folder, switched machines, …)
-  // fall through to the seeded ~/Documents/Memex so the app is never
-  // stuck without a vault.
+  // Auto-restore or create default vault on first mount.
+  //
+  // We always run ensureDefaultVault first — it's idempotent and seeds
+  // the canonical ~/Documents/Memex scaffold. This repairs any missing
+  // subdirectories or seed files (e.g. if the user manually deleted
+  // raw/ from Finder).
+  //
+  // Then we open the user's last vault if any (which may be the default
+  // OR an external folder like an existing Obsidian vault). If the
+  // saved path no longer exists, fall through to the default so the
+  // app is never stuck without a vault.
   useEffect(() => {
     if (currentVault) return;
     void (async () => {
+      let defaultVault: string | null = null;
+      try {
+        defaultVault = await ipc.ensureDefaultVault();
+      } catch {
+        /* keep going — user may have a different vault saved */
+      }
       const last = getLastVaultPath();
       if (last) {
-        try {
-          await openVault(last);
-          if (useVaultStore.getState().currentVault) return;
-        } catch {
-          /* fall through */
-        }
+        await openVault(last);
+        if (useVaultStore.getState().currentVault) return;
       }
-      try {
-        const p = await ipc.ensureDefaultVault();
-        await openVault(p);
-      } catch {
-        /* user can pick manually via Settings */
+      if (defaultVault) {
+        await openVault(defaultVault);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -150,10 +150,15 @@ mod tests {
     #[test]
     fn save_then_load_roundtrips() {
         with_isolated_data("roundtrip", |dir| {
-            let mut s = Settings::default();
-            s.query_provider = "openai-api".into();
-            s.query_model = "gpt-4o-mini".into();
-            s.providers.openai_api = true;
+            let s = Settings {
+                query_provider: "openai-api".into(),
+                query_model: "gpt-4o-mini".into(),
+                providers: ProviderFlags {
+                    openai_api: true,
+                    ..ProviderFlags::default()
+                },
+                ..Settings::default()
+            };
             save(&s).unwrap();
             assert!(dir.join("settings.json").exists());
             let back = load();
