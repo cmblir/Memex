@@ -17,89 +17,35 @@ import { useSettingsStore } from "../stores/settingsStore";
 
 interface Preset {
   id: string;
-  label: string;
-  blurb: string;
-  ram: string;
+  family: string;
   size: string;
-  tier: "tiny" | "small" | "balanced" | "quality" | "code";
+  bytes: number;
 }
 
+// Curated Ollama models sorted by on-disk size. Sizes are nominal (Q4
+// quantization) — Ollama may pull a slightly different quant.
 const PRESETS: Preset[] = [
-  // ───────── Under 1 GB on disk ─────────
-  {
-    id: "gemma3:270m",
-    label: "Tiny · Gemma 3 270M",
-    blurb: "Quickest possible. Honest take: too small for ingest, OK for one-line Q&A.",
-    ram: "1 GB RAM",
-    size: "~291 MB",
-    tier: "tiny",
-  },
-  {
-    id: "smollm2:360m",
-    label: "Tiny · SmolLM2 360M",
-    blurb: "Same scale as Gemma 270M, slightly better at instruction following.",
-    ram: "1 GB RAM",
-    size: "~726 MB",
-    tier: "tiny",
-  },
-  {
-    id: "gemma3:1b",
-    label: "Light · Gemma 3 1B",
-    blurb: "Best sub-1 GB quality. Decent summaries, weak at frontmatter rules.",
-    ram: "2 GB RAM",
-    size: "~815 MB",
-    tier: "small",
-  },
-  {
-    id: "qwen2.5:1.5b",
-    label: "Light · Qwen 2.5 1.5B",
-    blurb: "Just over 1 GB; better reasoning than Gemma 1B. Still tight for ingest.",
-    ram: "2 GB RAM",
-    size: "~986 MB",
-    tier: "small",
-  },
-  // ───────── 1–3 GB ─────────
-  {
-    id: "llama3.2:1b",
-    label: "Light · Llama 3.2 1B",
-    blurb: "Strong Q&A, fast on any Apple Silicon Mac.",
-    ram: "2 GB RAM",
-    size: "~1.3 GB",
-    tier: "small",
-  },
-  {
-    id: "qwen2.5:3b",
-    label: "Balanced · Qwen 2.5 3B",
-    blurb: "Reasoning sweet spot for the size. Citation-aware if prompted well.",
-    ram: "4 GB RAM",
-    size: "~1.9 GB",
-    tier: "balanced",
-  },
-  {
-    id: "llama3.2:3b",
-    label: "Balanced · Llama 3.2 3B",
-    blurb: "Solid general-purpose. Good drafts; light on long-context ingest.",
-    ram: "4 GB RAM",
-    size: "~2.0 GB",
-    tier: "balanced",
-  },
-  // ───────── 4 GB+ ─────────
-  {
-    id: "qwen2.5:7b",
-    label: "Quality · Qwen 2.5 7B",
-    blurb: "First size where ingest workflow holds together end-to-end.",
-    ram: "8 GB RAM",
-    size: "~4.7 GB",
-    tier: "quality",
-  },
+  { id: "gemma3:270m", family: "Gemma 3", size: "270M", bytes: 291_000_000 },
+  { id: "smollm2:360m", family: "SmolLM2", size: "360M", bytes: 726_000_000 },
+  { id: "gemma3:1b", family: "Gemma 3", size: "1B", bytes: 815_000_000 },
+  { id: "qwen2.5:0.5b", family: "Qwen 2.5", size: "0.5B", bytes: 398_000_000 },
+  { id: "qwen2.5:1.5b", family: "Qwen 2.5", size: "1.5B", bytes: 986_000_000 },
+  { id: "llama3.2:1b", family: "Llama 3.2", size: "1B", bytes: 1_300_000_000 },
+  { id: "smollm2:1.7b", family: "SmolLM2", size: "1.7B", bytes: 1_800_000_000 },
+  { id: "qwen2.5:3b", family: "Qwen 2.5", size: "3B", bytes: 1_900_000_000 },
+  { id: "llama3.2:3b", family: "Llama 3.2", size: "3B", bytes: 2_000_000_000 },
+  { id: "phi3.5", family: "Phi 3.5", size: "3.8B", bytes: 2_200_000_000 },
+  { id: "mistral:7b", family: "Mistral", size: "7B", bytes: 4_100_000_000 },
+  { id: "llama3.1:8b", family: "Llama 3.1", size: "8B", bytes: 4_700_000_000 },
+  { id: "qwen2.5:7b", family: "Qwen 2.5", size: "7B", bytes: 4_700_000_000 },
   {
     id: "qwen2.5-coder:7b",
-    label: "Code · Qwen 2.5 Coder 7B",
-    blurb: "Same size as Q-7B but best at JSON / structured / frontmatter output.",
-    ram: "8 GB RAM",
-    size: "~4.7 GB",
-    tier: "code",
+    family: "Qwen 2.5 Coder",
+    size: "7B",
+    bytes: 4_700_000_000,
   },
+  { id: "gemma3:4b", family: "Gemma 3", size: "4B", bytes: 3_300_000_000 },
+  { id: "gemma3:12b", family: "Gemma 3", size: "12B", bytes: 8_100_000_000 },
 ];
 
 interface PullState {
@@ -294,68 +240,96 @@ export default function OllamaSetup({
 
       <div>
         <div
-          className="muted"
+          className="row"
           style={{
-            fontSize: 12,
-            textTransform: "uppercase",
-            letterSpacing: "0.04em",
+            justifyContent: "space-between",
+            alignItems: "baseline",
             marginBottom: 8,
           }}
         >
-          Pull a recommended model
+          <div
+            className="muted"
+            style={{
+              fontSize: 12,
+              textTransform: "uppercase",
+              letterSpacing: "0.04em",
+            }}
+          >
+            Pull a model
+          </div>
+          <a
+            href="#"
+            onClick={(e) => {
+              e.preventDefault();
+              void ipc.openExternal("https://ollama.com/library");
+            }}
+            className="muted"
+            style={{ fontSize: 11.5 }}
+          >
+            full catalog ↗
+          </a>
         </div>
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: 8,
+            gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
+            gap: 6,
           }}
         >
-          {PRESETS.map((p) => {
-            const installed = status.models.some((m) =>
-              m.name.startsWith(p.id),
-            );
-            const busy = pull?.model === p.id && !pull.done;
-            return (
-              <button
-                key={p.id}
-                className="card-flat"
-                onClick={() => void pullModel(p.id)}
-                disabled={installed || busy || pull !== null}
-                style={{
-                  padding: 12,
-                  textAlign: "left",
-                  cursor: installed || busy ? "default" : "pointer",
-                  opacity: installed ? 0.6 : 1,
-                }}
-              >
-                <div
-                  className="row"
-                  style={{ marginBottom: 2, justifyContent: "space-between" }}
+          {[...PRESETS]
+            .sort((a, b) => a.bytes - b.bytes)
+            .map((p) => {
+              const installed = status.models.some((m) =>
+                m.name.startsWith(p.id),
+              );
+              const busy = pull?.model === p.id && !pull.done;
+              return (
+                <button
+                  key={p.id}
+                  className="card-flat"
+                  onClick={() => void pullModel(p.id)}
+                  disabled={installed || busy || pull !== null}
+                  style={{
+                    padding: "8px 10px",
+                    textAlign: "left",
+                    cursor: installed || busy ? "default" : "pointer",
+                    opacity: installed ? 0.55 : 1,
+                  }}
+                  title={p.id}
                 >
-                  <div style={{ fontWeight: 500, fontSize: 13.5 }}>
-                    {p.label}
+                  <div
+                    className="row"
+                    style={{
+                      justifyContent: "space-between",
+                      alignItems: "baseline",
+                    }}
+                  >
+                    <div style={{ fontWeight: 500, fontSize: 13 }}>
+                      {p.family} {p.size}
+                    </div>
+                    <span
+                      style={{
+                        fontSize: 10.5,
+                        fontFamily: "var(--font-mono)",
+                        color: "var(--ink-4)",
+                      }}
+                    >
+                      {formatBytes(p.bytes)}
+                    </span>
                   </div>
-                  <span
+                  <div
                     style={{
                       fontSize: 10.5,
                       fontFamily: "var(--font-mono)",
                       color: "var(--ink-4)",
+                      marginTop: 2,
                     }}
                   >
-                    {p.size}
-                  </span>
-                </div>
-                <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
-                  {p.blurb}
-                </div>
-                <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
-                  {p.ram} ·{" "}
-                  {installed ? "installed" : busy ? "pulling…" : "tap to pull"}
-                </div>
-              </button>
-            );
-          })}
+                    {installed ? "● installed" : busy ? "pulling…" : p.id}
+                  </div>
+                </button>
+              );
+            })}
         </div>
       </div>
 
