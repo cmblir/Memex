@@ -40,10 +40,36 @@ interface ThemeColors {
   accent: string;
 }
 
+// Decide light/dark from the ACTUAL rendered background, not the
+// data-theme attribute. The attribute can read stale during the brief
+// window between mount and App's theme effect, which left graph nodes
+// painted with the light-theme (dark) colour on a dark canvas —
+// invisible. The computed --bg is always whatever is really on screen.
+function isDarkBackground(cs: CSSStyleDeclaration): boolean {
+  const bg = cs.getPropertyValue("--bg").trim();
+  const m =
+    /^#([0-9a-f]{6})$/i.exec(bg) ??
+    /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i.exec(bg);
+  if (!m) return true; // default to dark — the app ships dark
+  let r: number, g: number, b: number;
+  if (m[0].startsWith("#")) {
+    const h = m[1];
+    r = parseInt(h.slice(0, 2), 16);
+    g = parseInt(h.slice(2, 4), 16);
+    b = parseInt(h.slice(4, 6), 16);
+  } else {
+    r = +m[1];
+    g = +m[2];
+    b = +m[3];
+  }
+  // Perceived luminance (0..255). < 128 → dark background.
+  return 0.299 * r + 0.587 * g + 0.114 * b < 128;
+}
+
 function readThemeColors(): ThemeColors {
   const root = document.documentElement;
   const cs = getComputedStyle(root);
-  const dark = root.getAttribute("data-theme") === "dark";
+  const dark = isDarkBackground(cs);
   return {
     bg: cs.getPropertyValue("--bg").trim() || (dark ? "#0f1115" : "#fafaf9"),
     ink: cs.getPropertyValue("--ink").trim() || (dark ? "#e6e8eb" : "#111418"),
@@ -148,7 +174,25 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
       applyLabelVisibility(cy, settingsRef.current.textFadeThreshold);
     });
 
+    // Re-read the theme after mount. This effect runs before the app's
+    // theme effect has set data-theme (confirmed: the first read sees
+    // bg=#ffffff / data-theme=null and would paint light-on-dark colours
+    // — invisible nodes). Re-applying once the palette has settled fixes
+    // it. rAF catches the common case; the timeout is a slow-cold-start
+    // safety net.
+    const restyle = (): void => {
+      if (cyRef.current) {
+        cyRef.current.style(
+          makeStyle(readThemeColors(), settingsRef.current),
+        );
+      }
+    };
+    const raf = requestAnimationFrame(restyle);
+    const safety = window.setTimeout(restyle, 300);
+
     return () => {
+      cancelAnimationFrame(raf);
+      window.clearTimeout(safety);
       layoutRef.current?.stop();
       layoutRef.current = null;
       cy.destroy();
