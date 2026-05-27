@@ -108,19 +108,16 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
     loadGraphSettings(),
   );
   const [drawerOpen, setDrawerOpen] = useState(false);
-  // Timelapse state — animation that reveals nodes oldest-to-newest.
-  // "Animate" — Obsidian's actual mechanic per the help docs:
-  // "Initiates a time-lapse animation where nodes appear in
-  // chronological order based on creation time." Nodes are inserted
-  // into a live physics simulation one at a time; each insertion
-  // perturbs the running graph so existing nodes wiggle as new edges
-  // pull on them. Confirmed by Obsidian forum threads.
+  // Timelapse — reveals nodes oldest-to-newest. Earlier versions re-ran
+  // the whole force layout on every insert, which on an 1800-node vault
+  // meant thousands of physics rebuilds: severe lag, and the camera
+  // lurched as it kept re-fitting a partial graph. This version is a
+  // pure REVEAL: the graph is already settled, so we just un-hide nodes
+  // in mtime order at their final positions with the camera fixed. Zero
+  // physics → smooth even on mobile.
   const [tlPlaying, setTlPlaying] = useState(false);
-  const tlTickRef = useRef<number | null>(null);
+  const tlRafRef = useRef<number | null>(null);
   const tlOrderRef = useRef<string[]>([]);
-  const tlQueueRef = useRef<string[]>([]); // mutable, drains during play
-  const tlAdjRef = useRef<Map<string, Set<string>> | null>(null);
-  const tlFullElsRef = useRef<ElementDefinition[] | null>(null);
   settingsRef.current = settings;
 
   useEffect(() => {
@@ -198,6 +195,10 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
     return () => {
       cancelAnimationFrame(raf);
       window.clearTimeout(safety);
+      if (tlRafRef.current != null) {
+        cancelAnimationFrame(tlRafRef.current);
+        tlRafRef.current = null;
+      }
       layoutRef.current?.stop();
       layoutRef.current = null;
       cy.destroy();
@@ -320,211 +321,73 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
     };
   }, [currentVault?.path]);
 
-  // Play — Obsidian's actual time-lapse animation.
-  //
-  // Mechanism (per obsidian.md/help and forum verification):
-  //   • Sort nodes by file creation time (we use mtime as proxy).
-  //   • Start with an empty graph and an already-running simulation.
-  //   • On a fast interval, add the next node + every edge whose
-  //     other endpoint is *already in the graph*. Each insertion
-  //     gives the simulation a small kick (alpha back up to 0.5),
-  //     so the new node falls toward its hub and the existing graph
-  //     wiggles in response.
-  //   • When all nodes have been added, let the simulation cool
-  //     normally and fit the camera.
+  // Play — reveal the already-settled graph oldest-to-newest. No physics
+  // runs: we hide every element, then un-hide nodes in mtime order at
+  // their final positions while the camera stays fixed on the whole
+  // graph. Cheap (just class toggles in a rAF loop), so it's smooth on
+  // big vaults and on mobile.
   const startTimelapse = (): void => {
     const cy = cyRef.current;
-    if (!cy) return;
+    if (!cy || cy.nodes().length === 0) return;
 
-    const fullEls = cy.elements().jsons() as ElementDefinition[];
-    tlFullElsRef.current = fullEls;
+    // Freeze any settling simulation so positions don't drift mid-reveal.
+    (
+      cy.scratch("_graph.layout") as cytoscape.Layouts | undefined
+    )?.stop();
 
-    // Build a neighbour-set lookup from the full element list so the
-    // per-tick "does this node have an already-visible friend?" check
-    // is O(1) instead of O(edges).
-    const adj = new Map<string, Set<string>>();
-    fullEls.forEach((e) => {
-      if (!e.data?.source) return;
-      const src = e.data.source as string;
-      const tgt = e.data.target as string;
-      if (!adj.has(src)) adj.set(src, new Set());
-      if (!adj.has(tgt)) adj.set(tgt, new Set());
-      adj.get(src)!.add(tgt);
-      adj.get(tgt)!.add(src);
-    });
-    tlAdjRef.current = adj;
+    // Reveal order: nodes oldest-first by mtime, then any node the mtime
+    // list didn't cover (defensive) appended at the end.
+    const nodeIds = new Set(cy.nodes().map((n) => n.id()));
+    const byMtime = tlOrderRef.current.filter((p) => nodeIds.has(p));
+    const seen = new Set(byMtime);
+    const order = [
+      ...byMtime,
+      ...[...nodeIds].filter((id) => !seen.has(id)),
+    ];
+    if (order.length === 0) return;
 
-    // file_mtimes returns EVERY .md file in the vault, but only files
-    // that are actual graph nodes (have or receive a wikilink) appear
-    // on the canvas. Insert order must be restricted to those, or the
-    // timelapse spends its first many ticks "revealing" link-less notes
-    // that never render — leaving the canvas blank for seconds before
-    // anything appears. Filter to graph nodes, preserving mtime order.
-    const nodeIds = new Set(
-      fullEls
-        .filter((e) => e.data && !e.data.source)
-        .map((e) => e.data!.id as string),
-    );
-    const order = tlOrderRef.current.filter((p) => nodeIds.has(p));
-    // Fallback: if mtimes never loaded (or matched nothing), reveal in
-    // adjacency order so Play still does something rather than nothing.
-    const insertOrder =
-      order.length > 0 ? order : Array.from(nodeIds);
-    if (insertOrder.length === 0) return;
-    tlOrderRef.current = insertOrder;
-    tlQueueRef.current = [...insertOrder];
+    // Frame the WHOLE graph once; the camera then stays put so nodes
+    // appear in place instead of the view lurching around.
+    cy.fit(undefined, 30);
 
-    const prevLayout = cy.scratch("_graph.layout") as
-      | cytoscape.Layouts
-      | undefined;
-    prevLayout?.stop();
-    cy.elements().remove();
-    runLayoutGrowing(cy, settingsRef.current);
+    // display:none also hides each node's edges, so revealing a node
+    // brings back only the edges whose BOTH ends are now visible.
+    cy.batch(() => cy.elements().addClass("tl-hidden"));
     setTlPlaying(true);
 
-    // Pace the reveal so the whole vault finishes in ~16s regardless of
-    // size: a 130-node vault gets a leisurely ~120ms/node, an 800-node
-    // vault speeds up to the 35ms floor. Every tick now adds a real
-    // node (dead ticks were removed above), so the cadence is honest.
-    const stepInterval = Math.max(
-      35,
-      Math.min(160, Math.round(16000 / insertOrder.length)),
-    );
-    tlTickRef.current = window.setInterval(() => {
+    // Finish in ~12s regardless of size. At ~60fps that's
+    // ceil(count / 720) nodes per frame.
+    const perFrame = Math.max(1, Math.ceil(order.length / (12 * 60)));
+    let i = 0;
+    const step = (): void => {
       const cyNow = cyRef.current;
-      const adjNow = tlAdjRef.current;
-      const queue = tlQueueRef.current;
-      const els = tlFullElsRef.current;
-      if (!cyNow || !adjNow || !els) return;
-
-      if (queue.length === 0) {
-        if (tlTickRef.current != null) {
-          window.clearInterval(tlTickRef.current);
-          tlTickRef.current = null;
-        }
-        runLayoutAnimated(cyNow, settingsRef.current);
-        window.setTimeout(() => {
-          if (!cyNow.destroyed()) cyNow.fit(undefined, 30);
-        }, 1500);
-        setTlPlaying(false);
+      if (!cyNow || cyNow.destroyed()) {
+        tlRafRef.current = null;
         return;
       }
-
-      // Obsidian's "Orphans off" mode trick: prefer to insert a node
-      // that already has a visible neighbour. That way every newly
-      // appearing node visibly attaches to the growing graph instead
-      // of popping in as a lonely dot. If nothing has a neighbour yet
-      // (e.g. first insert), fall back to the head of the queue.
-      let pickIdx = -1;
-      for (let i = 0; i < queue.length; i++) {
-        const candidate = queue[i];
-        const neighbours = adjNow.get(candidate);
-        if (!neighbours) continue;
-        for (const n of neighbours) {
-          if (cyNow.getElementById(n).length > 0) {
-            pickIdx = i;
-            break;
-          }
-        }
-        if (pickIdx !== -1) break;
-      }
-      if (pickIdx === -1) pickIdx = 0;
-      const path = queue.splice(pickIdx, 1)[0];
-      const nodeJson = els.find(
-        (e) => e.data?.id === path && !e.data?.source,
-      );
-      if (!nodeJson || cyNow.getElementById(path).length > 0) return;
-
-      // Spawn position. A node with already-visible neighbours appears
-      // RIGHT AT its hub so the hub-and-spoke shape builds outward. The
-      // very first node lands dead-centre. Link-less orphans drop onto a
-      // ring around the centre (random angle, near the current radius)
-      // so they fan out evenly instead of piling at origin and trailing
-      // off in one direction — the graph grows as a round, centred disk.
-      let nbCount = 0;
-      let avgX = 0;
-      let avgY = 0;
-      const neighbours = adjNow.get(path);
-      if (neighbours) {
-        for (const n of neighbours) {
-          const node = cyNow.getElementById(n);
-          if (node.length === 0) continue;
-          const p = node.position();
-          avgX += p.x;
-          avgY += p.y;
-          nbCount += 1;
-        }
-      }
-      let spawnX: number;
-      let spawnY: number;
-      if (nbCount > 0) {
-        spawnX = avgX / nbCount + (Math.random() - 0.5) * 30;
-        spawnY = avgY / nbCount + (Math.random() - 0.5) * 30;
-      } else if (cyNow.nodes().length === 0) {
-        spawnX = 0;
-        spawnY = 0;
-      } else {
-        const bb = cyNow.elements().boundingBox();
-        const radius = Math.max(80, Math.max(bb.w, bb.h) / 2);
-        const angle = Math.random() * Math.PI * 2;
-        const r = radius * (0.7 + Math.random() * 0.4);
-        spawnX = Math.cos(angle) * r;
-        spawnY = Math.sin(angle) * r;
-      }
-
       cyNow.batch(() => {
-        cyNow.add(nodeJson);
-        const newNode = cyNow.getElementById(path);
-        newNode.position({ x: spawnX, y: spawnY });
-        newNode.scratch("d3-force", {
-          x: spawnX,
-          y: spawnY,
-          vx: 0,
-          vy: 0,
-        });
-        // Add every edge whose other endpoint is already in cy.
-        els.forEach((e) => {
-          if (!e.data?.source) return;
-          const src = e.data.source as string;
-          const tgt = e.data.target as string;
-          if (src !== path && tgt !== path) return;
-          const other = src === path ? tgt : src;
-          if (other === path) return;
-          if (
-            cyNow.getElementById(other).length > 0 &&
-            cyNow.getElementById(e.data.id as string).length === 0
-          ) {
-            cyNow.add(e);
-          }
-        });
+        for (let k = 0; k < perFrame && i < order.length; k++, i++) {
+          cyNow.getElementById(order[i]).removeClass("tl-hidden");
+        }
       });
-
-      runLayoutGrowing(cyNow, settingsRef.current);
-
-      // Refit every 4 inserts — gives the camera time to follow the
-      // expanding cluster without jumping on every single node.
-      const consumed = insertOrder.length - queue.length;
-      if (consumed % 4 === 0) {
-        cyNow.animate(
-          { fit: { eles: cyNow.elements(), padding: 40 } },
-          { duration: 220, easing: "ease-out-quad" },
-        );
+      if (i < order.length) {
+        tlRafRef.current = requestAnimationFrame(step);
+      } else {
+        tlRafRef.current = null;
+        setTlPlaying(false);
       }
-    }, stepInterval);
+    };
+    tlRafRef.current = requestAnimationFrame(step);
   };
 
   const pauseTimelapse = (): void => {
-    if (tlTickRef.current != null) {
-      window.clearInterval(tlTickRef.current);
-      tlTickRef.current = null;
+    if (tlRafRef.current != null) {
+      cancelAnimationFrame(tlRafRef.current);
+      tlRafRef.current = null;
     }
+    // Reveal whatever's still hidden so pausing never strands nodes.
     const cy = cyRef.current;
-    if (cy) {
-      const layout = cy.scratch("_graph.layout") as
-        | cytoscape.Layouts
-        | undefined;
-      layout?.stop();
-    }
+    if (cy) cy.batch(() => cy.elements().removeClass("tl-hidden"));
     setTlPlaying(false);
   };
 
@@ -765,7 +628,10 @@ function buildForceOpts(settings: GraphSettings): Record<string, unknown> {
     // instead of clumping. 2 iterations make the constraint hold.
     collideRadius: (n: D3Node) => (Number(n.size) || 6) / 2 + 6,
     collideStrength: 1,
-    collideIterations: 2,
+    // 1 iteration (not 2) — half the collision cost per tick, which
+    // matters on an 1800-node vault / on mobile. The spacing is still
+    // even enough.
+    collideIterations: 1,
   };
 }
 
@@ -814,39 +680,6 @@ function runLayout(
     alphaDecay: 0.018,
     alphaMin: 0.001,
     velocityDecay: 0.45,
-  });
-}
-
-// Cinematic form-up for the timelapse "play" button — same forces,
-// just slower decay so the eye can follow each node falling into
-// place. velocityDecay 0.65 cuts momentum each tick so leaves drift
-// toward their hub at a watchable speed. randomize stays false: by the
-// time this runs the timelapse has placed every node, and re-scattering
-// would throw the finished graph back into chaos.
-function runLayoutAnimated(
-  cy: Core,
-  settings: GraphSettings,
-): cytoscape.Layouts {
-  return runLayoutWith(cy, settings, {
-    alpha: 1,
-    alphaDecay: 0.006,
-    alphaMin: 0.001,
-    velocityDecay: 0.65,
-  });
-}
-
-// Variant used during per-node-insert animation: very low alpha gives
-// each insertion a small kick rather than restarting the whole
-// simulation, so the already-placed graph barely flinches.
-function runLayoutGrowing(
-  cy: Core,
-  settings: GraphSettings,
-): cytoscape.Layouts {
-  return runLayoutWith(cy, settings, {
-    alpha: 0.2,
-    alphaDecay: 0.04,
-    alphaMin: 0.001,
-    velocityDecay: 0.75,
   });
 }
 
@@ -1161,6 +994,14 @@ function makeStyle(c: ThemeColors, s: GraphSettings): StylesheetCSS[] {
         "border-width": 2,
         "border-color": c.accent,
         "text-opacity": 1,
+      },
+    },
+    {
+      // Timelapse reveal: hidden elements are removed from the render
+      // (and so are their edges), then un-hidden oldest-first.
+      selector: ".tl-hidden",
+      css: {
+        display: "none",
       },
     },
   ];
