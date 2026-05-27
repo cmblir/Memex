@@ -435,12 +435,12 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
       );
       if (!nodeJson || cyNow.getElementById(path).length > 0) return;
 
-      // Spawn near the centroid of already-visible neighbours so each
-      // new leaf appears RIGHT AT its hub and the hub-and-spoke shape
-      // builds outward visibly. Orphans without any visible neighbours
-      // (only at the very start) spawn near origin.
-      let spawnX = (Math.random() - 0.5) * 30;
-      let spawnY = (Math.random() - 0.5) * 30;
+      // Spawn position. A node with already-visible neighbours appears
+      // RIGHT AT its hub so the hub-and-spoke shape builds outward. The
+      // very first node lands dead-centre. Link-less orphans drop onto a
+      // ring around the centre (random angle, near the current radius)
+      // so they fan out evenly instead of piling at origin and trailing
+      // off in one direction — the graph grows as a round, centred disk.
       let nbCount = 0;
       let avgX = 0;
       let avgY = 0;
@@ -455,9 +455,21 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
           nbCount += 1;
         }
       }
+      let spawnX: number;
+      let spawnY: number;
       if (nbCount > 0) {
         spawnX = avgX / nbCount + (Math.random() - 0.5) * 30;
         spawnY = avgY / nbCount + (Math.random() - 0.5) * 30;
+      } else if (cyNow.nodes().length === 0) {
+        spawnX = 0;
+        spawnY = 0;
+      } else {
+        const bb = cyNow.elements().boundingBox();
+        const radius = Math.max(80, Math.max(bb.w, bb.h) / 2);
+        const angle = Math.random() * Math.PI * 2;
+        const r = radius * (0.7 + Math.random() * 0.4);
+        spawnX = Math.cos(angle) * r;
+        spawnY = Math.sin(angle) * r;
       }
 
       cyNow.batch(() => {
@@ -738,13 +750,11 @@ function buildForceOpts(settings: GraphSettings): Record<string, unknown> {
     manyBodyStrength: -settings.repelForce * REPEL_SCALE,
     manyBodyTheta: 0.9,
     manyBodyDistanceMin: 1,
-    // Cap the repulsion range. Beyond this, nodes feel NO push — which
-    // is what stops link-less orphans from being flung to the canvas
-    // corners: once an orphan drifts past the cap, only the gentle
-    // centre gravity acts on it, so it settles into an even ring around
-    // the connected core (the way Obsidian lays orphans out) instead of
-    // shooting off to infinity.
-    manyBodyDistanceMax: 350,
+    // manyBodyDistanceMax is set per-run in runLayoutWith, scaled to the
+    // node count: a small vault needs a tight cap so orphans bunch into a
+    // small disk, a big vault needs a wide cap so its many clusters can
+    // spread. A single fixed value can't serve both.
+    manyBodyDistanceMax: 600,
     xStrength: Math.max(0.005, settings.centerForce * CENTER_SCALE),
     xX: 0,
     yStrength: Math.max(0.005, settings.centerForce * CENTER_SCALE),
@@ -753,10 +763,17 @@ function buildForceOpts(settings: GraphSettings): Record<string, unknown> {
     // collision radius is what gives Obsidian its even spacing — nodes
     // (including orphans) settle into a roughly uniform minimum gap
     // instead of clumping. 2 iterations make the constraint hold.
-    collideRadius: (n: D3Node) => (Number(n.size) || 6) / 2 + 16,
+    collideRadius: (n: D3Node) => (Number(n.size) || 6) / 2 + 10,
     collideStrength: 1,
     collideIterations: 2,
   };
+}
+
+// Repulsion-range cap scaled to graph size. Roughly the radius the node
+// disk wants to occupy: small vaults get a tight cap (orphans hug the
+// core), big vaults a wide one (clusters spread). Clamped to a sane band.
+function scaledDistanceMax(nodeCount: number): number {
+  return Math.max(300, Math.min(1600, Math.round(300 + 0.72 * nodeCount)));
 }
 
 function runLayoutWith(
@@ -766,6 +783,7 @@ function runLayoutWith(
 ): cytoscape.Layouts {
   const layoutOpts = {
     ...buildForceOpts(settings),
+    manyBodyDistanceMax: scaledDistanceMax(cy.nodes().length),
     ...override,
   } as unknown as LayoutOptions;
   cy.stop();

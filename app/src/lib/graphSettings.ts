@@ -47,16 +47,17 @@ export const DEFAULT_GRAPH_SETTINGS: GraphSettings = {
   textFadeThreshold: 1.1,
   nodeSize: 1,
   linkThickness: 1,
-  centerForce: 0.6, // → internal 0.06 — enough gravity to bound orphans
-  repelForce: 12, // → internal -1200 — spread without flinging orphans
+  centerForce: 0.8, // → internal 0.08 — gravity that bounds orphans
+  repelForce: 11, // → internal -1100 — spreads clusters, dandelions stay clear
   linkForce: 1, // → ÷ sqrt(min-degree) per link
-  linkDistance: 130, // pixels — open layout, leaves clear of the hub
+  linkDistance: 60, // pixels — compact dandelions, like Obsidian
 };
 
-// v14: balanced defaults that bound orphan nodes into an even disk
-// (capped repulsion range + firmer collision) instead of flinging them
-// to the corners. Bumping resets persisted slider values.
-const KEY = "memex.graph.settings.v14";
+// v15: orphans fill an even disk with the connected clusters (the
+// repulsion-range cap now scales with node count, so small vaults bound
+// orphans tightly while big vaults let clusters spread). Bumping resets
+// persisted slider values.
+const KEY = "memex.graph.settings.v15";
 
 export function loadGraphSettings(): GraphSettings {
   try {
