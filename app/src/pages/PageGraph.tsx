@@ -953,9 +953,10 @@ function countAllNodes(adjacency: Adjacency | null): number {
 }
 
 function makeStyle(c: ThemeColors, s: GraphSettings): StylesheetCSS[] {
-  // Fine lines, but thick enough to actually see. 0.4 was sub-pixel at
-  // typical zoom; 0.8 base × thickness slider reads as a clean hairline.
-  const edgeWidth = 0.8 * s.linkThickness;
+  // Fine lines, but thick enough to actually see. 0.8 base × thickness
+  // slider reads as a clean hairline; the 0.5px floor keeps edges
+  // visible even if the user drags the thickness slider to its minimum.
+  const edgeWidth = Math.max(0.5, 0.8 * s.linkThickness);
   return [
     {
       selector: "node",

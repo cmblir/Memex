@@ -53,10 +53,12 @@ export const DEFAULT_GRAPH_SETTINGS: GraphSettings = {
   linkDistance: 90, // pixels — short, lets leaves sit close to hubs
 };
 
-// v11: switched to Obsidian-faithful force scaling — old slider values
-// stored under v10 produced a hairball with the new internal mapping,
-// so we force-reset everyone on first load.
-const KEY = "memex.graph.settings.v11";
+// v12: reset persisted slider values. Some users had dragged
+// linkThickness down to 0.3 and textFadeThreshold to 0.45 under v11,
+// which made edges sub-pixel-thin (invisible) and is indistinguishable
+// from "the graph is broken". Bumping the key restores the legible
+// defaults; the user can re-tune from there.
+const KEY = "memex.graph.settings.v12";
 
 export function loadGraphSettings(): GraphSettings {
   try {
