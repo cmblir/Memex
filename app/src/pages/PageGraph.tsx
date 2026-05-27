@@ -273,8 +273,7 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
   //     normally and fit the camera.
   const startTimelapse = (): void => {
     const cy = cyRef.current;
-    const order = tlOrderRef.current;
-    if (!cy || order.length === 0) return;
+    if (!cy) return;
 
     const fullEls = cy.elements().jsons() as ElementDefinition[];
     tlFullElsRef.current = fullEls;
@@ -293,7 +292,26 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
       adj.get(tgt)!.add(src);
     });
     tlAdjRef.current = adj;
-    tlQueueRef.current = [...order];
+
+    // file_mtimes returns EVERY .md file in the vault, but only files
+    // that are actual graph nodes (have or receive a wikilink) appear
+    // on the canvas. Insert order must be restricted to those, or the
+    // timelapse spends its first many ticks "revealing" link-less notes
+    // that never render — leaving the canvas blank for seconds before
+    // anything appears. Filter to graph nodes, preserving mtime order.
+    const nodeIds = new Set(
+      fullEls
+        .filter((e) => e.data && !e.data.source)
+        .map((e) => e.data!.id as string),
+    );
+    const order = tlOrderRef.current.filter((p) => nodeIds.has(p));
+    // Fallback: if mtimes never loaded (or matched nothing), reveal in
+    // adjacency order so Play still does something rather than nothing.
+    const insertOrder =
+      order.length > 0 ? order : Array.from(nodeIds);
+    if (insertOrder.length === 0) return;
+    tlOrderRef.current = insertOrder;
+    tlQueueRef.current = [...insertOrder];
 
     const prevLayout = cy.scratch("_graph.layout") as
       | cytoscape.Layouts
@@ -303,10 +321,14 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
     runLayoutGrowing(cy, settingsRef.current);
     setTlPlaying(true);
 
-    // 180ms per node insertion ≈ 23s for a 130-node vault, matching
-    // the slow Obsidian feel where you can clearly watch each leaf
-    // arrive and snap to its hub.
-    const stepInterval = 180;
+    // Pace the reveal so the whole vault finishes in ~16s regardless of
+    // size: a 130-node vault gets a leisurely ~120ms/node, an 800-node
+    // vault speeds up to the 35ms floor. Every tick now adds a real
+    // node (dead ticks were removed above), so the cadence is honest.
+    const stepInterval = Math.max(
+      35,
+      Math.min(160, Math.round(16000 / insertOrder.length)),
+    );
     tlTickRef.current = window.setInterval(() => {
       const cyNow = cyRef.current;
       const adjNow = tlAdjRef.current;
@@ -408,7 +430,7 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
 
       // Refit every 4 inserts — gives the camera time to follow the
       // expanding cluster without jumping on every single node.
-      const consumed = order.length - queue.length;
+      const consumed = insertOrder.length - queue.length;
       if (consumed % 4 === 0) {
         cyNow.animate(
           { fit: { eles: cyNow.elements(), padding: 40 } },
