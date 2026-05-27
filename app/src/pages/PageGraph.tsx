@@ -259,11 +259,11 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
     const currentPath = currentVault?.path ?? "";
     if (cy.scratch("_graph.lastVaultPath") !== currentPath) {
       const early = window.setTimeout(() => {
-        if (!cy.destroyed()) cy.fit(undefined, 40);
+        if (!cy.destroyed()) robustFit(cy);
       }, 700);
       const onStop = (): void => {
         if (!cy.destroyed()) {
-          cy.fit(undefined, 40);
+          robustFit(cy);
           applyLabelVisibility(cy, settingsRef.current.textFadeThreshold);
         }
       };
@@ -346,9 +346,9 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
     ];
     if (order.length === 0) return;
 
-    // Frame the WHOLE graph once; the camera then stays put so nodes
-    // appear in place instead of the view lurching around.
-    cy.fit(undefined, 30);
+    // Frame the bulk of the graph once; the camera then stays put so
+    // nodes appear in place instead of the view lurching around.
+    robustFit(cy);
 
     // display:none also hides each node's edges, so revealing a node
     // brings back only the edges whose BOTH ends are now visible.
@@ -681,6 +681,32 @@ function runLayout(
     alphaMin: 0.001,
     velocityDecay: 0.45,
   });
+}
+
+// Fit the camera to the BULK of the graph, ignoring a handful of far
+// outlier orphans. cy.fit() frames the literal bounding box, so a couple
+// of stray dots shrink the whole graph to a tiny clump in a corner. We
+// instead centre on the centroid and zoom to the 95th-percentile radius,
+// so the dense disk fills the view (a few outliers may sit just past the
+// edge, which is fine).
+function robustFit(cy: Core, padding = 40): void {
+  const nodes = cy.nodes(":visible");
+  if (nodes.length === 0) return;
+  const pos = nodes.map((n) => n.position());
+  const cx = pos.reduce((a, p) => a + p.x, 0) / pos.length;
+  const cyc = pos.reduce((a, p) => a + p.y, 0) / pos.length;
+  const dists = pos
+    .map((p) => Math.hypot(p.x - cx, p.y - cyc))
+    .sort((a, b) => a - b);
+  const r = Math.max(60, dists[Math.floor(dists.length * 0.95)] ?? 0);
+  const w = cy.width();
+  const h = cy.height();
+  const z = Math.max(
+    cy.minZoom(),
+    Math.min(cy.maxZoom(), Math.min(w - 2 * padding, h - 2 * padding) / (2 * r)),
+  );
+  cy.zoom(z);
+  cy.pan({ x: w / 2 - cx * z, y: h / 2 - cyc * z });
 }
 
 function applyLabelVisibility(cy: Core, threshold: number): void {
