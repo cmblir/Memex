@@ -22,7 +22,7 @@ import {
   type GraphSettings,
 } from "../lib/graphSettings";
 import type { Strings } from "../lib/i18n";
-import type { Adjacency } from "../lib/ipc";
+import type { Adjacency, FileNode } from "../lib/ipc";
 import { useUIStore } from "../stores/uiStore";
 import { useVaultStore } from "../stores/vaultStore";
 import { ipc } from "../lib/ipc";
@@ -96,6 +96,7 @@ function ensureLayoutRegistered(): void {
 
 export default function PageGraph({ t }: { t: Strings }): JSX.Element {
   const adjacency = useVaultStore((s) => s.adjacency);
+  const fileTree = useVaultStore((s) => s.fileTree);
   const currentVault = useVaultStore((s) => s.currentVault);
   const setRoute = useUIStore((s) => s.setRoute);
   const theme = useUIStore((s) => s.theme);
@@ -131,6 +132,11 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
     () => collectFolders(currentVault?.path ?? "", adjacency),
     [adjacency, currentVault?.path],
   );
+  // Every markdown file in the vault — including ones with no links at
+  // all. Obsidian shows these as free-floating "orphan" dots; we only
+  // had nodes that appeared in the link graph, so link-less files were
+  // silently missing. Feeding the full list in lets them render.
+  const allFiles = useMemo(() => flattenMarkdown(fileTree), [fileTree]);
 
   // (A) Mount cytoscape once. The instance is reused across every
   // settings change to avoid re-laying-out from scratch and to keep
@@ -220,7 +226,7 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
   useEffect(() => {
     const cy = cyRef.current;
     if (!cy || !adjacency) return;
-    const allowed = computeAllowed(adjacency, {
+    const allowed = computeAllowed(adjacency, allFiles, {
       tagFilter: settings.tagFilter,
       folderFilter: settings.folderFilter,
       vaultRoot: currentVault?.path ?? "",
@@ -228,7 +234,12 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
       existingOnly: settings.existingOnly,
       showOrphans: settings.showOrphans,
     });
-    const elements = buildElements(adjacency, allowed, settings.nodeSize);
+    const elements = buildElements(
+      adjacency,
+      allowed,
+      allFiles,
+      settings.nodeSize,
+    );
     cy.batch(() => {
       cy.elements().remove();
       cy.add(elements);
@@ -263,6 +274,7 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     adjacency,
+    allFiles,
     settings.tagFilter,
     settings.folderFilter,
     settings.search,
@@ -614,6 +626,8 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
             }
             tags={tags}
             folders={folders}
+            tlPlaying={tlPlaying}
+            onTimelapse={tlPlaying ? pauseTimelapse : startTimelapse}
           />
         </div>
       </div>
@@ -724,18 +738,24 @@ function buildForceOpts(settings: GraphSettings): Record<string, unknown> {
     manyBodyStrength: -settings.repelForce * REPEL_SCALE,
     manyBodyTheta: 0.9,
     manyBodyDistanceMin: 1,
-    // Cap the long-range repulsion so distant clusters stop pushing on
-    // each other once they're already comfortably apart. Without a cap
-    // every node fights every other forever and the simulation never
-    // reaches a stable resting state on dense graphs.
-    manyBodyDistanceMax: 1200,
+    // Cap the repulsion range. Beyond this, nodes feel NO push — which
+    // is what stops link-less orphans from being flung to the canvas
+    // corners: once an orphan drifts past the cap, only the gentle
+    // centre gravity acts on it, so it settles into an even ring around
+    // the connected core (the way Obsidian lays orphans out) instead of
+    // shooting off to infinity.
+    manyBodyDistanceMax: 350,
     xStrength: Math.max(0.005, settings.centerForce * CENTER_SCALE),
     xX: 0,
     yStrength: Math.max(0.005, settings.centerForce * CENTER_SCALE),
     yY: 0,
-    collideRadius: (n: D3Node) => (Number(n.size) || 6) / 2 + 4,
-    collideStrength: 0.9,
-    collideIterations: 1,
+    // Generous personal-space ring around every node. A large, firm
+    // collision radius is what gives Obsidian its even spacing — nodes
+    // (including orphans) settle into a roughly uniform minimum gap
+    // instead of clumping. 2 iterations make the constraint hold.
+    collideRadius: (n: D3Node) => (Number(n.size) || 6) / 2 + 16,
+    collideStrength: 1,
+    collideIterations: 2,
   };
 }
 
@@ -849,6 +869,7 @@ interface AllowFilterOpts {
 
 function computeAllowed(
   adjacency: Adjacency,
+  allFiles: string[],
   {
     tagFilter,
     folderFilter,
@@ -859,13 +880,19 @@ function computeAllowed(
   }: AllowFilterOpts,
 ): Set<string> {
   const all = new Set<string>();
+  // Every real markdown file is a candidate node — even link-less ones,
+  // so orphans show up like they do in Obsidian.
+  for (const p of allFiles) all.add(p);
   for (const p of Object.keys(adjacency.forward)) all.add(p);
   for (const targets of Object.values(adjacency.forward)) {
     for (const p of targets) all.add(p);
   }
   for (const p of Object.keys(adjacency.tags)) all.add(p);
 
-  const resolved = new Set(Object.keys(adjacency.forward));
+  // A node is "resolved" (a real file) if it exists on disk. Targets of
+  // wikilinks that resolved are real too.
+  const resolved = new Set<string>(allFiles);
+  for (const p of Object.keys(adjacency.forward)) resolved.add(p);
   const needle = search.trim().toLowerCase();
 
   // First pass: apply filters that don't depend on the surviving
@@ -897,12 +924,16 @@ function computeAllowed(
 function buildElements(
   adjacency: Adjacency,
   allowed: Set<string>,
+  allFiles: string[],
   sizeMultiplier: number,
 ): ElementDefinition[] {
   const nodes = new Set<string>();
   const edges: ElementDefinition[] = [];
   const degree = new Map<string, number>();
-  const resolved = new Set<string>(Object.keys(adjacency.forward));
+  // Real files (on disk) render as solid nodes; only unresolved wikilink
+  // targets are ghosts. Files with no out-links are still real.
+  const resolved = new Set<string>(allFiles);
+  for (const p of Object.keys(adjacency.forward)) resolved.add(p);
 
   for (const [source, targets] of Object.entries(adjacency.forward)) {
     if (!allowed.has(source)) continue;
@@ -950,6 +981,20 @@ function collectTags(map: Record<string, string[]>): string[] {
     for (const tag of arr) set.add(tag);
   }
   return Array.from(set).sort();
+}
+
+// Flatten the recursive vault tree into a flat list of every .md file
+// path. Used to seed the graph with link-less "orphan" nodes.
+function flattenMarkdown(tree: FileNode[]): string[] {
+  const out: string[] = [];
+  const walk = (nodes: FileNode[]): void => {
+    for (const n of nodes) {
+      if (n.kind === "directory") walk(n.children);
+      else if (n.path.toLowerCase().endsWith(".md")) out.push(n.path);
+    }
+  };
+  walk(tree);
+  return out;
 }
 
 function collectFolders(root: string, adjacency: Adjacency | null): string[] {

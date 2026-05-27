@@ -17,6 +17,8 @@ interface Props {
   onReset: () => void;
   tags: string[];
   folders: string[];
+  tlPlaying: boolean;
+  onTimelapse: () => void;
 }
 
 export default function GraphControls({
@@ -28,6 +30,8 @@ export default function GraphControls({
   onReset,
   tags,
   folders,
+  tlPlaying,
+  onTimelapse,
 }: Props): JSX.Element {
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
     filters: true,
@@ -208,6 +212,16 @@ export default function GraphControls({
           step={0.05}
           onChange={(v) => onChange({ linkThickness: v })}
         />
+        <button
+          type="button"
+          className="graph-drawer__play"
+          onClick={onTimelapse}
+          aria-pressed={tlPlaying}
+        >
+          {tlPlaying
+            ? (t.gr_timelapse_pause ?? "Pause timelapse")
+            : (t.gr_timelapse_play ?? "Play timelapse")}
+        </button>
       </Section>
 
       <Section

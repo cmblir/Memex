@@ -47,16 +47,16 @@ export const DEFAULT_GRAPH_SETTINGS: GraphSettings = {
   textFadeThreshold: 1.1,
   nodeSize: 1,
   linkThickness: 1,
-  centerForce: 0.3, // → internal 0.03 — weak pull, lets clusters breathe
-  repelForce: 15, // → internal -1500 — strong spread, Obsidian-airy
+  centerForce: 0.6, // → internal 0.06 — enough gravity to bound orphans
+  repelForce: 12, // → internal -1200 — spread without flinging orphans
   linkForce: 1, // → ÷ sqrt(min-degree) per link
-  linkDistance: 160, // pixels — longer edges, more open layout
+  linkDistance: 130, // pixels — open layout, leaves clear of the hub
 };
 
-// v13: airier Obsidian-matched defaults (stronger repel, longer links,
-// weaker center) + fainter edges. Bumping resets persisted slider
-// values so everyone gets the new look on first load.
-const KEY = "memex.graph.settings.v13";
+// v14: balanced defaults that bound orphan nodes into an even disk
+// (capped repulsion range + firmer collision) instead of flinging them
+// to the corners. Bumping resets persisted slider values.
+const KEY = "memex.graph.settings.v14";
 
 export function loadGraphSettings(): GraphSettings {
   try {

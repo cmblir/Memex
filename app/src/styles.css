@@ -1358,6 +1358,29 @@ hr {
   gap: 10px;
 }
 
+/* Timelapse "play" button — labelled, full width, like Obsidian's
+   Animate button so it's discoverable (the toolbar ▶ alone was missed). */
+.graph-drawer__play {
+  margin-top: 4px;
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: var(--r);
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 120ms ease;
+}
+.graph-drawer__play:hover {
+  opacity: 0.88;
+}
+.graph-drawer__play[aria-pressed="true"] {
+  background: transparent;
+  color: var(--ink);
+}
+
 /* Form fields inside the drawer */
 .graph-field {
   display: flex;
