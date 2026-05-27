@@ -182,8 +182,17 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
     // place. cytoscape-d3-force itself wires up the grab/drag/free
     // handling once a layout is running again; idle stays physics-free
     // (cheap on mobile). Skip while the timelapse reveal is playing.
-    cy.on("grab", "node", () => {
+    cy.on("grab", "node", (e) => {
       if (tlRafRef.current != null) return;
+      // Pin the grabbed node at its current spot BEFORE re-heating, so
+      // the restarting sim can't fling it away from the cursor in the
+      // frame before cytoscape-d3-force's own drag handler takes over.
+      // (cytoscape-d3-force only fixes a node on 'drag', not 'grab'.)
+      const n = e.target;
+      const p = n.position();
+      const sc =
+        (n.scratch("d3-force") as Record<string, number> | undefined) ?? {};
+      n.scratch("d3-force", { ...sc, x: p.x, y: p.y, fx: p.x, fy: p.y });
       reheatLayout(cy, settingsRef.current);
     });
 
@@ -361,9 +370,12 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
     // nodes appear in place instead of the view lurching around.
     robustFit(cy);
 
-    // display:none also hides each node's edges, so revealing a node
-    // brings back only the edges whose BOTH ends are now visible.
-    cy.batch(() => cy.elements().addClass("tl-hidden"));
+    // Hide only NODES — cytoscape won't draw an edge whose endpoint is
+    // display:none, so an edge reappears automatically the moment BOTH
+    // its nodes are revealed. (Hiding the edges too left them stuck
+    // hidden, since the reveal loop only un-hides nodes — that's why the
+    // graph lost all its lines after a timelapse.)
+    cy.batch(() => cy.nodes().addClass("tl-hidden"));
     setTlPlaying(true);
 
     // Finish in ~12s regardless of size. At ~60fps that's
@@ -702,10 +714,14 @@ function runLayout(
 function reheatLayout(cy: Core, settings: GraphSettings): cytoscape.Layouts {
   return runLayoutWith(cy, settings, {
     randomize: false,
-    alpha: 0.3,
-    alphaDecay: 0.02,
+    // Gentle: a low alpha re-activates the forces enough that the
+    // dragged node's neighbours follow, without a big kick that reflows
+    // the whole graph (which read as "the node jumps where I didn't
+    // click"). It cools to rest in ~1s.
+    alpha: 0.12,
+    alphaDecay: 0.03,
     alphaMin: 0.001,
-    velocityDecay: 0.4,
+    velocityDecay: 0.45,
   });
 }
 
