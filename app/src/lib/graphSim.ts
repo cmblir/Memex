@@ -32,7 +32,10 @@ interface SimLink {
 }
 
 const REPEL_SCALE = 20; // slider 10 → manyBody -200 (uncapped, Barnes-Hut)
-const CENTER_SCALE = 0.4; // slider 0.5 → x/y strength 0.2 (gentle gravity)
+// slider 0.5 → x/y strength ≈0.075 — the gentle gravity the design intends.
+// (The cytoscape port used 0.4 here = 0.2, which over-compressed the graph
+// into a uniform disk; this lets clusters drift into separated dandelions.)
+const CENTER_SCALE = 0.15;
 
 export interface GraphSim {
   nodes: SimNode[];
