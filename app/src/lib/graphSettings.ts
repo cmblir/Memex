@@ -47,17 +47,21 @@ export const DEFAULT_GRAPH_SETTINGS: GraphSettings = {
   textFadeThreshold: 1.1,
   nodeSize: 1,
   linkThickness: 1,
-  centerForce: 0.95, // → internal 0.95 — very strong gravity, tight disk
-  repelForce: 9, // → internal -900 — splays leaves without flinging
-  linkForce: 1, // → ÷ sqrt(min-degree) per link
-  linkDistance: 30, // pixels — tight dandelions, dense uniform packing
+  // Obsidian's real defaults (obsidian-extended-graph EngineOptions):
+  // centerStrength ≈0.52, repelStrength 10, linkStrength 1, linkDistance 250.
+  // linkDistance 250 (NOT 30, which is Obsidian's slider MINIMUM) is what
+  // separates the dandelions instead of collapsing them onto a central spine.
+  centerForce: 0.5, // → internal xStrength/yStrength ≈0.075 (gentle gravity)
+  repelForce: 10, // → internal manyBodyStrength -300, uncapped (Barnes-Hut)
+  linkForce: 1, // → ÷ (1+min-degree) per link (d3 native normalisation)
+  linkDistance: 250, // pixels — Obsidian default; long links spread clusters
 };
 
 // v17: stronger gravity still, which compresses link-less orphans into
 // the disk with the clusters instead of letting them settle into faint
 // concentric shells (the leftover "ring" artifact). Bumping resets
 // persisted slider values.
-const KEY = "memex.graph.settings.v17";
+const KEY = "memex.graph.settings.v18";
 
 export function loadGraphSettings(): GraphSettings {
   try {

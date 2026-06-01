@@ -24,8 +24,6 @@
     "@tauri-apps/api": "2.11.0",
     "@tauri-apps/plugin-dialog": "2.7.1",
     "codemirror": "6.0.2",
-    "cytoscape": "3.33.3",
-    "cytoscape-d3-force": "^1.1.4",
     "d3-force": "^3.0.0",
     "graphology": "^0.26.0",
     "markdown-it": "14.1.1",

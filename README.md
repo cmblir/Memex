@@ -125,7 +125,7 @@ A chat surface that answers questions about your wiki. The active **query model*
 
 ### Graph
 
-Full vault link graph via Cytoscape.js with the **d3-force** layout — the same force family Obsidian uses (`forceLink` + `forceManyBody` + `forceX/Y` + collision). Nodes are files, edges are `[[wikilinks]]`; hubs grow with link count. **Every note is shown, including link-less ones** — strong centre gravity packs the orphans in among the clusters so the whole thing settles into one dense, even disk rather than a hairball with a halo.
+Full vault link graph rendered with **sigma.js** (WebGL) over a **d3-force** layout — the same force family Obsidian uses (`forceLink` + `forceManyBody` + `forceX/Y` + collision), with each link's strength normalised by node degree so leaves hug their hub and clusters drift apart into separated radial "dandelions". Nodes are files, edges are `[[wikilinks]]`; hubs grow with link count, edges stay faint so the nodes carry the structure, and labels fade in hub-first as you zoom — just like Obsidian. **Every note can be shown, including link-less orphans** (toggle *Show orphans* in the drawer).
 
 The layout runs once and then rests (no idle CPU). **Drag a node and the simulation re-heats** — its neighbours follow and, on release, it springs back to its resting place, just like Obsidian. Idle stays physics-free, so it's light enough for large vaults.
 

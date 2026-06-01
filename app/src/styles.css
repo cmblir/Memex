@@ -1239,6 +1239,20 @@ hr {
   inset: 0;
   width: 100%;
   height: 100%;
+  /* Start hidden and fade in once the graph is positioned (graph-ready added
+     in PageGraph.tsx) so the raw scatter / first relayout frame is never
+     shown — Obsidian-style clean reveal. */
+  opacity: 0;
+  transition: opacity 320ms ease;
+}
+.graph-canvas.graph-ready {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .graph-canvas {
+    opacity: 1;
+    transition: none;
+  }
 }
 .graph-empty {
   position: absolute;
