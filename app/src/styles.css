@@ -1784,3 +1784,25 @@ hr {
     opacity: 0.4;
   }
 }
+
+/* Interactive ingest mini-graph (replaces the static constellation). */
+.ingest-minigraph {
+  width: 100%;
+  height: auto;
+  display: block;
+  touch-action: none; /* pointer-drag the stars, don't scroll */
+}
+.ingest-minigraph .ingest-star {
+  cursor: grab;
+}
+.ingest-minigraph .ingest-star:active {
+  cursor: grabbing;
+}
+.ingest-minigraph .ingest-star.hovered {
+  stroke: var(--ink);
+  stroke-width: 1.5;
+}
+.ingest-minigraph .ingest-star-label.hovered {
+  fill: var(--ink);
+  font-size: 10px;
+}

@@ -12,8 +12,8 @@ import type { IconName } from "../lib/icons";
 import type { Strings } from "../lib/i18n";
 import { formatTicker } from "../lib/time";
 import { useIngestStore } from "../stores/ingestStore";
-import type { IngestEvent, TouchedFile } from "../stores/ingestStore";
-import { useUIStore } from "../stores/uiStore";
+import type { IngestEvent } from "../stores/ingestStore";
+import IngestMiniGraph from "./IngestMiniGraph";
 
 const TOOL_ICONS: Record<string, IconName> = {
   Read: "book",
@@ -37,14 +37,11 @@ function describe(ev: IngestEvent): string {
 export default function IngestProgress({ t }: { t: Strings }): JSX.Element {
   const stage = useIngestStore((s) => s.stage);
   const events = useIngestStore((s) => s.events);
-  const touched = useIngestStore((s) => s.touched);
   const readCount = useIngestStore((s) => s.readCount);
   const writeCount = useIngestStore((s) => s.writeCount);
   const model = useIngestStore((s) => s.model);
   const startedAt = useIngestStore((s) => s.startedAt);
-  const vaultPath = useIngestStore((s) => s.vaultPath);
   const cancelIngest = useIngestStore((s) => s.cancelIngest);
-  const setRoute = useUIStore((s) => s.setRoute);
 
   // 1 Hz elapsed ticker while the run is live.
   const [now, setNow] = useState(() => Date.now());
@@ -91,13 +88,7 @@ export default function IngestProgress({ t }: { t: Strings }): JSX.Element {
         </button>
       </div>
 
-      <Constellation
-        touched={touched}
-        title={t.ing_live_files}
-        onOpen={(rel) => {
-          if (vaultPath) setRoute(`page:${vaultPath}/${rel}`);
-        }}
-      />
+      <IngestMiniGraph t={t} />
 
       <div className="card ingest-feed-card">
         <div className="section-title" style={{ fontSize: 13.5, marginBottom: 6 }}>
@@ -149,71 +140,3 @@ function FeedRow({ ev }: { ev: IngestEvent }): JSX.Element {
   );
 }
 
-// Files the run has touched, laid out on a golden-angle spiral around a hub.
-// Written pages glow with the entity green; read-only ones stay muted. Click
-// a node to open that page in the reader.
-function Constellation({
-  touched,
-  title,
-  onOpen,
-}: {
-  touched: TouchedFile[];
-  title: string;
-  onOpen: (relPath: string) => void;
-}): JSX.Element | null {
-  const W = 640;
-  const H = 260;
-  const cx = W / 2;
-  const cy = H / 2;
-  const shown = touched.slice(0, 48); // beyond this the spiral leaves the box
-  if (shown.length === 0) return null;
-  return (
-    <div className="card ingest-constellation-card">
-      <div className="section-title" style={{ fontSize: 13.5, marginBottom: 4 }}>
-        {title} · {touched.length}
-      </div>
-      <svg
-        className="ingest-constellation"
-        viewBox={`0 0 ${W} ${H}`}
-        role="img"
-        aria-label={title}
-      >
-        <circle className="ingest-hub" cx={cx} cy={cy} r={6} />
-        {shown.map((f, i) => {
-          const angle = i * 2.39996; // golden angle in radians
-          const radius = 34 + 13 * Math.sqrt(i);
-          const x = cx + radius * Math.cos(angle) * 1.9; // stretch horizontally
-          const y = cy + radius * Math.sin(angle) * 0.78;
-          const name = f.path.split("/").pop() ?? f.path;
-          return (
-            <g key={f.path} className="ingest-star-g">
-              <line
-                className={"ingest-edge" + (f.write ? " write" : "")}
-                x1={cx}
-                y1={cy}
-                x2={x}
-                y2={y}
-              />
-              <circle
-                className={"ingest-star" + (f.write ? " write" : "")}
-                cx={x}
-                cy={y}
-                r={f.write ? 5 : 3.5}
-                onClick={() => onOpen(f.path)}
-                role="button"
-                aria-label={f.path}
-              >
-                <title>{f.path}</title>
-              </circle>
-              {f.write ? (
-                <text className="ingest-star-label" x={x} y={y - 9}>
-                  {name.length > 26 ? `${name.slice(0, 25)}…` : name}
-                </text>
-              ) : null}
-            </g>
-          );
-        })}
-      </svg>
-    </div>
-  );
-}

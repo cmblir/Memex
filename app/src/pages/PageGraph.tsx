@@ -38,6 +38,7 @@ import { useUIStore } from "../stores/uiStore";
 import { useVaultStore } from "../stores/vaultStore";
 import { useIngestStore } from "../stores/ingestStore";
 import { ipc } from "../lib/ipc";
+import type { Adjacency } from "../lib/ipc";
 
 // Live-ingest node tints — pages the in-flight run wrote glow gold, pages it
 // only read glow ice blue. Both sit inside the cosmic palette so they read as
@@ -302,13 +303,17 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
     const takeOver = (): void => {
       userTookOver = true;
     };
-    container.addEventListener("wheel", takeOver, { passive: true, once: true });
+    container.addEventListener("wheel", takeOver, {
+      passive: true,
+      once: true,
+    });
     container.addEventListener("pointerdown", takeOver, { once: true });
 
     let killed = false;
     const sim = createSim(graph, s, (nodes) => {
       // d3 mutated node x/y in place; write them back for sigma to render.
-      for (const n of nodes) graph.mergeNodeAttributes(n.id, { x: n.x, y: n.y });
+      for (const n of nodes)
+        graph.mergeNodeAttributes(n.id, { x: n.x, y: n.y });
       renderer.refresh({ skipIndexation: true });
     });
     simRef.current = sim;
@@ -425,7 +430,8 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
 
     const startPulse = (id: string): void => {
       if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-      if (pulseRafRef.current != null) cancelAnimationFrame(pulseRafRef.current);
+      if (pulseRafRef.current != null)
+        cancelAnimationFrame(pulseRafRef.current);
       const start = performance.now();
       const tick = (): void => {
         const r = sigmaRef.current;
@@ -466,142 +472,112 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
     };
 
     // --- Live growth: pages the ingest writes appear in the galaxy as it
-    // runs. Each write schedules a debounced link-graph rescan (Rust resolves
-    // wikilinks by stem); the result is DIFFED against the rendered graph and
-    // only the new nodes/edges are injected — graph.addNode + sim.liveAdd —
-    // so the settled layout never tears down. New stars spawn next to their
-    // first already-placed neighbour and the physics tugs them into place.
-    // The official refreshLinkGraph at run end still does the full rebuild
-    // (sizes, communities) and reconciles everything.
-    let liveTimer: number | null = null;
-    let liveInFlight = false;
-    let disposed = false;
-
-    const liveGrow = async (): Promise<void> => {
+    // runs. ingestStore rescans the link graph (debounced) after each write
+    // and publishes it as liveAdjacency; we DIFF it against the rendered
+    // graph and inject only the new nodes/edges — graph.addNode +
+    // sim.liveAdd — so the settled layout never tears down. New stars spawn
+    // next to their first already-placed neighbour and the physics tugs them
+    // into place. The official refreshLinkGraph at run end still does the
+    // full rebuild (sizes, communities) and reconciles everything.
+    const liveGrow = (adj: Adjacency): void => {
       const renderer = sigmaRef.current;
       const sim = simRef.current;
       const vault = useVaultStore.getState().currentVault?.path;
       const ing = useIngestStore.getState();
       if (!renderer || !sim || !vault || ing.vaultPath !== vault) return;
-      if (liveInFlight) {
-        scheduleLiveGrow();
-        return;
+      const g = renderer.getGraph() as VaultGraph;
+      const s = settingsRef.current;
+      const theme = readTheme();
+      const files = flattenMarkdown(useVaultStore.getState().fileTree);
+      const allowed = computeAllowed(adj, files, {
+        tagFilter: s.tagFilter,
+        folderFilter: s.folderFilter,
+        vaultRoot: vault,
+        search: s.search,
+        existingOnly: s.existingOnly,
+        showOrphans: s.showOrphans,
+      });
+
+      // Candidate edges among allowed nodes; collect ones not rendered yet.
+      const newEdges: [string, string][] = [];
+      const newIdSet = new Set<string>();
+      for (const [src, targets] of Object.entries(adj.forward)) {
+        if (!allowed.has(src)) continue;
+        for (const tgt of targets) {
+          if (!allowed.has(tgt)) continue;
+          const srcKnown = g.hasNode(src);
+          const tgtKnown = g.hasNode(tgt);
+          if (srcKnown && tgtKnown && g.hasEdge(src, tgt)) continue;
+          if (!srcKnown) newIdSet.add(src);
+          if (!tgtKnown) newIdSet.add(tgt);
+          newEdges.push([src, tgt]);
+        }
       }
-      liveInFlight = true;
-      try {
-        const adj = await ipc.buildLinkGraph(vault);
-        // The build effect may have torn down / rebuilt while we awaited —
-        // only patch the renderer/sim pair we started with.
-        if (disposed || sigmaRef.current !== renderer || simRef.current !== sim)
-          return;
-        const g = renderer.getGraph() as VaultGraph;
-        const s = settingsRef.current;
-        const theme = readTheme();
-        const files = flattenMarkdown(useVaultStore.getState().fileTree);
-        const allowed = computeAllowed(adj, files, {
-          tagFilter: s.tagFilter,
-          folderFilter: s.folderFilter,
-          vaultRoot: vault,
-          search: s.search,
-          existingOnly: s.existingOnly,
-          showOrphans: s.showOrphans,
-        });
+      if (newIdSet.size === 0 && newEdges.length === 0) return;
 
-        // Candidate edges among allowed nodes; collect ones not rendered yet.
-        const newEdges: [string, string][] = [];
-        const newIdSet = new Set<string>();
-        for (const [src, targets] of Object.entries(adj.forward)) {
-          if (!allowed.has(src)) continue;
-          for (const tgt of targets) {
-            if (!allowed.has(tgt)) continue;
-            const srcKnown = g.hasNode(src);
-            const tgtKnown = g.hasNode(tgt);
-            if (srcKnown && tgtKnown && g.hasEdge(src, tgt)) continue;
-            if (!srcKnown) newIdSet.add(src);
-            if (!tgtKnown) newIdSet.add(tgt);
-            newEdges.push([src, tgt]);
-          }
-        }
-        if (newIdSet.size === 0 && newEdges.length === 0) return;
-
-        // Position each new node beside its first positioned endpoint so it
-        // buds off the cluster instead of streaking in from the far field.
-        const placed = new Map<string, { x: number; y: number }>();
-        const posOf = (id: string): { x: number; y: number } | null => {
-          if (g.hasNode(id))
-            return {
-              x: g.getNodeAttribute(id, "x"),
-              y: g.getNodeAttribute(id, "y"),
-            };
-          return placed.get(id) ?? null;
-        };
-        for (const id of newIdSet) {
-          let near: { x: number; y: number } | null = null;
-          for (const [a, b] of newEdges) {
-            if (a === id) near = posOf(b);
-            else if (b === id) near = posOf(a);
-            if (near) break;
-          }
-          const jitter = (): number => (Math.random() - 0.5) * 40;
-          placed.set(id, {
-            x: (near?.x ?? 0) + jitter(),
-            y: (near?.y ?? 0) + jitter(),
-          });
-        }
-        for (const id of newIdSet) {
-          const p = placed.get(id)!;
-          g.addNode(id, {
-            label: stem(id),
-            x: p.x,
-            y: p.y,
-            deg: 0,
-            size: Math.max(1, s.nodeSize),
-            unresolved: 0,
-            color: theme.starDim,
-          });
-        }
-        const addedEdges: [string, string][] = [];
+      // Position each new node beside its first positioned endpoint so it
+      // buds off the cluster instead of streaking in from the far field.
+      const placed = new Map<string, { x: number; y: number }>();
+      const posOf = (id: string): { x: number; y: number } | null => {
+        if (g.hasNode(id))
+          return {
+            x: g.getNodeAttribute(id, "x"),
+            y: g.getNodeAttribute(id, "y"),
+          };
+        return placed.get(id) ?? null;
+      };
+      for (const id of newIdSet) {
+        let near: { x: number; y: number } | null = null;
         for (const [a, b] of newEdges) {
-          if (!g.hasNode(a) || !g.hasNode(b) || g.hasEdge(a, b)) continue;
-          g.addEdge(a, b, {
-            color: theme.edge,
-            size: 0.6 * s.linkThickness,
-          });
-          addedEdges.push([a, b]);
+          if (a === id) near = posOf(b);
+          else if (b === id) near = posOf(a);
+          if (near) break;
         }
-        // Degree-derived size for the newcomers only — existing stars keep
-        // their size until the end-of-run rebuild recomputes everything.
-        for (const id of newIdSet) {
-          const deg = g.degree(id);
-          g.mergeNodeAttributes(id, {
-            deg,
-            size:
-              Math.max(1, Math.min(5, 1 + Math.sqrt(deg) * 0.7)) * s.nodeSize,
-          });
-        }
-        sim.liveAdd([...newIdSet], addedEdges);
-        renderer.refresh();
-        setCounts({ nodes: g.order, edges: g.size });
-      } catch {
-        /* scan failed — the next write event retries */
-      } finally {
-        liveInFlight = false;
+        const jitter = (): number => (Math.random() - 0.5) * 40;
+        placed.set(id, {
+          x: (near?.x ?? 0) + jitter(),
+          y: (near?.y ?? 0) + jitter(),
+        });
       }
-    };
-
-    const scheduleLiveGrow = (): void => {
-      if (liveTimer != null) window.clearTimeout(liveTimer);
-      // Write tool events fire when the call STARTS; give the file ~2s to
-      // land on disk before rescanning.
-      liveTimer = window.setTimeout(() => {
-        liveTimer = null;
-        void liveGrow();
-      }, 2000);
+      for (const id of newIdSet) {
+        const p = placed.get(id)!;
+        g.addNode(id, {
+          label: stem(id),
+          x: p.x,
+          y: p.y,
+          deg: 0,
+          size: Math.max(1, s.nodeSize),
+          unresolved: 0,
+          color: theme.starDim,
+        });
+      }
+      const addedEdges: [string, string][] = [];
+      for (const [a, b] of newEdges) {
+        if (!g.hasNode(a) || !g.hasNode(b) || g.hasEdge(a, b)) continue;
+        g.addEdge(a, b, {
+          color: theme.edge,
+          size: 0.6 * s.linkThickness,
+        });
+        addedEdges.push([a, b]);
+      }
+      // Degree-derived size for the newcomers only — existing stars keep
+      // their size until the end-of-run rebuild recomputes everything.
+      for (const id of newIdSet) {
+        const deg = g.degree(id);
+        g.mergeNodeAttributes(id, {
+          deg,
+          size: Math.max(1, Math.min(5, 1 + Math.sqrt(deg) * 0.7)) * s.nodeSize,
+        });
+      }
+      sim.liveAdd([...newIdSet], addedEdges);
+      renderer.refresh();
+      setCounts({ nodes: g.order, edges: g.size });
     };
 
     // Adopt any already-running (or just-finished) ingest on mount.
     const st = useIngestStore.getState();
     sync(st.touched, st.vaultPath, false);
+    if (st.liveAdjacency) liveGrow(st.liveAdjacency);
 
     const unsub = useIngestStore.subscribe((s, prev) => {
       if (s.stage === "idle" && prev.stage !== "idle") {
@@ -612,13 +588,13 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
         return;
       }
       if (s.touched !== prev.touched) sync(s.touched, s.vaultPath, true);
-      if (s.writeCount > prev.writeCount) scheduleLiveGrow();
+      if (s.liveAdjacency && s.liveAdjacency !== prev.liveAdjacency)
+        liveGrow(s.liveAdjacency);
     });
     return () => {
-      disposed = true;
       unsub();
-      if (liveTimer != null) window.clearTimeout(liveTimer);
-      if (pulseRafRef.current != null) cancelAnimationFrame(pulseRafRef.current);
+      if (pulseRafRef.current != null)
+        cancelAnimationFrame(pulseRafRef.current);
     };
   }, []);
 
@@ -660,7 +636,10 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
       }
       const g = r.getGraph() as VaultGraph;
       const now = performance.now() - start;
-      const want = Math.min(order.length, Math.ceil((now / REVEAL_MS) * order.length));
+      const want = Math.min(
+        order.length,
+        Math.ceil((now / REVEAL_MS) * order.length),
+      );
       if (want > next) {
         const batch = order.slice(next, want);
         for (const id of batch) g.setNodeAttribute(id, "hidden", false);
@@ -738,12 +717,22 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
             }
           >
             {tlPlaying ? (
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 12 12"
+                fill="currentColor"
+              >
                 <rect x="2" y="2" width="3" height="8" />
                 <rect x="7" y="2" width="3" height="8" />
               </svg>
             ) : (
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 12 12"
+                fill="currentColor"
+              >
                 <path d="M3 2 L10 6 L3 10 Z" />
               </svg>
             )}
@@ -758,7 +747,13 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
             title={t.gr_settings ?? "Graph settings"}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-              <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="2" />
+              <circle
+                cx="12"
+                cy="12"
+                r="3"
+                stroke="currentColor"
+                strokeWidth="2"
+              />
               <path
                 d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
                 stroke="currentColor"
@@ -776,7 +771,9 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
               <p className="muted graph-empty">
                 {t.gr_empty_pre ??
                   "No wikilinks found in the vault yet. Add some "}
-                <code style={{ fontFamily: "var(--font-mono)" }}>[[wikilinks]]</code>
+                <code style={{ fontFamily: "var(--font-mono)" }}>
+                  [[wikilinks]]
+                </code>
                 {t.gr_empty_post ?? " to see the graph grow."}
               </p>
             ) : null}
@@ -787,7 +784,9 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
             onToggle={() => setDrawerOpen((v) => !v)}
             settings={settings}
             onChange={(patch) => setSettings((prev) => ({ ...prev, ...patch }))}
-            onReset={() => setSettings({ ...DEFAULT_GRAPH_SETTINGS, search: "" })}
+            onReset={() =>
+              setSettings({ ...DEFAULT_GRAPH_SETTINGS, search: "" })
+            }
             tags={tags}
             folders={folders}
             tlPlaying={tlPlaying}
@@ -802,11 +801,7 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
 // The inner `pct` of the given nodes by distance from their centroid. Framing
 // to this (not every node) keeps the dense dandelion field filling the view
 // instead of a few far-flung disconnected components / orphans shrinking it.
-function robustSubset(
-  graph: VaultGraph,
-  ids: string[],
-  pct = 0.9,
-): string[] {
+function robustSubset(graph: VaultGraph, ids: string[], pct = 0.9): string[] {
   if (ids.length < 12) return ids;
   let cx = 0;
   let cy = 0;
@@ -825,9 +820,9 @@ function robustSubset(
       ),
     }))
     .sort((a, b) => a.d - b.d);
-  return byDist.slice(0, Math.max(12, Math.floor(byDist.length * pct))).map(
-    (n) => n.id,
-  );
+  return byDist
+    .slice(0, Math.max(12, Math.floor(byDist.length * pct)))
+    .map((n) => n.id);
 }
 
 function ZoomButtons({

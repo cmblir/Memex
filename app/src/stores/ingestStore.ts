@@ -10,7 +10,7 @@
 import { create } from "zustand";
 import { listen } from "@tauri-apps/api/event";
 import { ipc } from "../lib/ipc";
-import type { ClaudeStreamPayload } from "../lib/ipc";
+import type { Adjacency, ClaudeStreamPayload } from "../lib/ipc";
 import { useVaultStore } from "./vaultStore";
 
 export type IngestStage =
@@ -72,6 +72,11 @@ interface IngestState {
   finishedAt: number | null;
   reportPath: string | null;
   vaultPath: string | null;
+  /** Fresh link graph rescanned (debounced) after each streamed write, so
+   * live views (mini graph, galaxy growth) see edges of pages created
+   * mid-run. Never written to vaultStore.adjacency — that would tear down
+   * the graph page renderer. */
+  liveAdjacency: Adjacency | null;
   /** false after a run finishes until the user visits the Ingest page —
    * drives the "done/failed" Topbar chip. */
   seen: boolean;
@@ -101,13 +106,18 @@ export const useIngestStore = create<IngestState>((set, get) => ({
   finishedAt: null,
   reportPath: null,
   vaultPath: null,
+  liveAdjacency: null,
   seen: true,
 
   async startIngest(title: string, body: string) {
     const vault = useVaultStore.getState().currentVault;
     if (!vault) return;
     const s = get();
-    if (s.stage === "writing-raw" || s.stage === "claude" || s.stage === "indexing")
+    if (
+      s.stage === "writing-raw" ||
+      s.stage === "claude" ||
+      s.stage === "indexing"
+    )
       return; // one run at a time
 
     const finalTitle = title.trim() || `untitled-${Date.now()}`;
@@ -128,6 +138,7 @@ export const useIngestStore = create<IngestState>((set, get) => ({
       finishedAt: null,
       reportPath: null,
       vaultPath: vault.path,
+      liveAdjacency: null,
       seen: true,
     });
 
@@ -210,6 +221,7 @@ export const useIngestStore = create<IngestState>((set, get) => ({
       startedAt: null,
       finishedAt: null,
       reportPath: null,
+      liveAdjacency: null,
       seen: true,
     }),
 }));
@@ -226,6 +238,42 @@ async function ensureStreamListener(): Promise<void> {
     if (!st.runId || e.payload.run_id !== st.runId) return;
     applyStreamEvent(e.payload);
   });
+}
+
+// Debounced link-graph rescan after streamed writes. Write tool events fire
+// when the call STARTS, so wait ~2s for the file to land on disk. Rust
+// resolves wikilinks by stem against current disk state — files created
+// mid-run resolve correctly.
+let scanTimer: number | null = null;
+let scanInFlight = false;
+
+function scheduleLiveScan(): void {
+  if (scanTimer != null) window.clearTimeout(scanTimer);
+  scanTimer = window.setTimeout(() => {
+    scanTimer = null;
+    void runLiveScan();
+  }, 2000);
+}
+
+async function runLiveScan(): Promise<void> {
+  const st = useIngestStore.getState();
+  if (!st.vaultPath || st.stage !== "claude") return;
+  if (scanInFlight) {
+    scheduleLiveScan();
+    return;
+  }
+  scanInFlight = true;
+  try {
+    const adj = await ipc.buildLinkGraph(st.vaultPath);
+    // Run may have finished or been reset while scanning.
+    if (useIngestStore.getState().runId === st.runId) {
+      useIngestStore.setState({ liveAdjacency: adj });
+    }
+  } catch {
+    /* scan failed — the next write event retries */
+  } finally {
+    scanInFlight = false;
+  }
 }
 
 function applyStreamEvent(p: ClaudeStreamPayload): void {
@@ -245,6 +293,7 @@ function applyStreamEvent(p: ClaudeStreamPayload): void {
     if (p.kind === "tool" && p.tool && ev.detail) {
       const isWrite = WRITE_TOOLS.has(p.tool);
       const isRead = p.tool === "Read";
+      if (isWrite) scheduleLiveScan();
       if (isWrite || isRead) {
         if (isWrite) next.writeCount = st.writeCount + 1;
         else next.readCount = st.readCount + 1;
@@ -256,10 +305,7 @@ function applyStreamEvent(p: ClaudeStreamPayload): void {
             );
           }
         } else {
-          next.touched = [
-            ...st.touched,
-            { path: ev.detail, write: isWrite },
-          ];
+          next.touched = [...st.touched, { path: ev.detail, write: isWrite }];
         }
       }
     }
