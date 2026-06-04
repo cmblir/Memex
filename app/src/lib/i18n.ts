@@ -67,6 +67,9 @@ export interface Strings {
   ing_live_writes: string;
   ing_cancel: string;
   ing_cancelled: string;
+  ing_preview_open: string;
+  ing_preview_close: string;
+  ing_preview_writing: string;
   ing_chip_done: string;
   ing_chip_error: string;
   q_title: string;
@@ -220,6 +223,9 @@ export const STRINGS: Record<Lang, Strings> = {
     ing_live_writes: "written",
     ing_cancel: "Cancel",
     ing_cancelled: "Ingest cancelled",
+    ing_preview_open: "Open page",
+    ing_preview_close: "Close preview",
+    ing_preview_writing: "Still being written — try again in a moment.",
     ing_chip_done: "Ingest done",
     ing_chip_error: "Ingest failed",
     q_title: "Ask the wiki",
@@ -379,6 +385,9 @@ export const STRINGS: Record<Lang, Strings> = {
     ing_live_writes: "작성",
     ing_cancel: "취소",
     ing_cancelled: "가져오기가 취소되었습니다",
+    ing_preview_open: "페이지 열기",
+    ing_preview_close: "미리보기 닫기",
+    ing_preview_writing: "아직 작성 중입니다 — 잠시 후 다시 눌러보세요.",
     ing_chip_done: "가져오기 완료",
     ing_chip_error: "가져오기 실패",
     q_title: "위키에 질문하기",
@@ -538,6 +547,9 @@ export const STRINGS: Record<Lang, Strings> = {
     ing_live_writes: "作成",
     ing_cancel: "キャンセル",
     ing_cancelled: "取り込みをキャンセルしました",
+    ing_preview_open: "ページを開く",
+    ing_preview_close: "プレビューを閉じる",
+    ing_preview_writing: "まだ書き込み中です — 少し待ってからもう一度。",
     ing_chip_done: "取り込み完了",
     ing_chip_error: "取り込み失敗",
     q_title: "ウィキに質問",

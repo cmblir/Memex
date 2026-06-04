@@ -20,8 +20,11 @@ import {
   type SimulationNodeDatum,
 } from "d3-force";
 import type { Strings } from "../lib/i18n";
+import { Icon } from "../lib/icons";
+import { ipc } from "../lib/ipc";
 import { useIngestStore } from "../stores/ingestStore";
 import { useUIStore } from "../stores/uiStore";
+import Viewer from "./Viewer";
 
 const W = 640;
 const H = 280;
@@ -60,6 +63,9 @@ export default function IngestMiniGraph({ t }: { t: Strings }): JSX.Element | nu
   const dragRef = useRef<{ node: MiniNode; moved: boolean } | null>(null);
   const [, setTick] = useState(0);
   const [hoverId, setHoverId] = useState<string | null>(null);
+  // Clicking a star opens this page's content in-place below the graph —
+  // navigating to the reader mid-run would hide the live progress.
+  const [selected, setSelected] = useState<string | null>(null);
 
   // Build the simulation once; structure syncs into it as the run streams.
   useEffect(() => {
@@ -188,8 +194,9 @@ export default function IngestMiniGraph({ t }: { t: Strings }): JSX.Element | nu
     d.node.fx = null;
     d.node.fy = null;
     simRef.current?.alphaTarget(0);
-    if (!d.moved && !n.hub && vaultPath) {
-      setRoute(`page:${vaultPath}/${n.id}`);
+    // Precise click (no drag movement) opens the in-place content preview.
+    if (!d.moved && !n.hub) {
+      setSelected((cur) => (cur === n.id ? null : n.id));
     }
   };
 
@@ -237,7 +244,8 @@ export default function IngestMiniGraph({ t }: { t: Strings }): JSX.Element | nu
                 className={
                   "ingest-star" +
                   (n.write ? " write" : "") +
-                  (hovered ? " hovered" : "")
+                  (hovered ? " hovered" : "") +
+                  (selected === n.id ? " selected" : "")
                 }
                 cx={cx(n)}
                 cy={cy(n)}
@@ -268,6 +276,88 @@ export default function IngestMiniGraph({ t }: { t: Strings }): JSX.Element | nu
           );
         })}
       </svg>
+      {selected && vaultPath ? (
+        <NodePreview
+          t={t}
+          relPath={selected}
+          vaultPath={vaultPath}
+          onOpen={() => setRoute(`page:${vaultPath}/${selected}`)}
+          onClose={() => setSelected(null)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+// In-place content preview for a clicked star. Re-fetches whenever the run
+// writes again, so a page that claude is still expanding stays current.
+function NodePreview({
+  t,
+  relPath,
+  vaultPath,
+  onOpen,
+  onClose,
+}: {
+  t: Strings;
+  relPath: string;
+  vaultPath: string;
+  onOpen: () => void;
+  onClose: () => void;
+}): JSX.Element {
+  const writeCount = useIngestStore((s) => s.writeCount);
+  const [content, setContent] = useState<string | null>(null);
+  const [missing, setMissing] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    ipc
+      .readFile(`${vaultPath}/${relPath}`)
+      .then((f) => {
+        if (cancelled) return;
+        setContent(f.content);
+        setMissing(false);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        // Tool event fired before the file landed on disk.
+        setMissing(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [vaultPath, relPath, writeCount]);
+
+  return (
+    <div className="ingest-preview" role="region" aria-label={relPath}>
+      <div className="ingest-preview-head">
+        <span className="ingest-preview-path" title={relPath}>
+          {relPath}
+        </span>
+        <button className="btn" onClick={onOpen}>
+          {t.ing_preview_open}
+        </button>
+        <button
+          className="icon-btn"
+          onClick={onClose}
+          aria-label={t.ing_preview_close}
+          title={t.ing_preview_close}
+        >
+          <Icon name="x" size={13} />
+        </button>
+      </div>
+      <div className="ingest-preview-body">
+        {missing ? (
+          <div className="muted" style={{ fontSize: 12 }}>
+            {t.ing_preview_writing}
+          </div>
+        ) : content === null ? (
+          <div className="muted" style={{ fontSize: 12 }}>
+            …
+          </div>
+        ) : (
+          <Viewer content={content} />
+        )}
+      </div>
     </div>
   );
 }

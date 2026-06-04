@@ -1806,3 +1806,42 @@ hr {
   fill: var(--ink);
   font-size: 10px;
 }
+
+/* In-place node content preview under the ingest mini-graph. */
+.ingest-minigraph .ingest-star.selected {
+  stroke: var(--ink);
+  stroke-width: 2;
+}
+.ingest-preview {
+  margin-top: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--bg-elev);
+  overflow: hidden;
+}
+.ingest-preview-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.ingest-preview-path {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ingest-preview-body {
+  padding: 10px 14px;
+  max-height: 260px;
+  overflow-y: auto;
+  font-size: 13px;
+}
+.ingest-preview-body .memex-viewer {
+  font-size: 13px;
+}
