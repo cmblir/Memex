@@ -57,6 +57,11 @@ export interface GraphSim {
   timelapseReveal(ids: string[]): void;
   // Reveal is done — let the live galaxy cool to rest.
   timelapseSettle(): void;
+  // Mid-flight injection for the live-ingest view: add brand-new nodes (their
+  // x/y/size/deg already written to the graph) and new links between any two
+  // known nodes, then gently reheat so newcomers tug into place without
+  // exploding the settled layout.
+  liveAdd(newIds: string[], newEdges: [string, string][]): void;
   stop(): void;
 }
 
@@ -194,6 +199,50 @@ export function createSim(
     },
     timelapseSettle() {
       sim.alphaTarget(0);
+    },
+    liveAdd(newIds, newEdges) {
+      for (const id of newIds) {
+        if (byId.has(id) || !graph.hasNode(id)) continue;
+        const a = graph.getNodeAttributes(id);
+        const n: SimNode = {
+          id,
+          x: a.x,
+          y: a.y,
+          size: a.size,
+          deg: a.deg,
+          vx: 0,
+          vy: 0,
+        };
+        nodes.push(n);
+        byId.set(id, n);
+        // If a timelapse is mid-flight, surface the newcomer in its active
+        // set too so it participates instead of waiting frozen.
+        if (tlActive) {
+          activeIds.add(id);
+          tlActive.push(n);
+        }
+      }
+      for (const [s, t] of newEdges) {
+        const sn = byId.get(s);
+        const tn = byId.get(t);
+        if (!sn || !tn) continue;
+        const l: SimLink = { source: sn, target: tn };
+        links.push(l);
+        (linksByNode.get(s) ?? linksByNode.set(s, []).get(s)!).push(l);
+        (linksByNode.get(t) ?? linksByNode.set(t, []).get(t)!).push(l);
+        sn.deg += 1;
+        tn.deg += 1;
+        if (tlActive && activeIds.has(s) && activeIds.has(t)) {
+          activeLinks.push(l);
+        }
+      }
+      // Re-bind so d3 initialises the new nodes/links, then ease them in.
+      linkF.links(tlActive ? activeLinks : links);
+      sim
+        .nodes(tlActive ?? nodes)
+        .alpha(Math.max(sim.alpha(), 0.5))
+        .alphaTarget(0)
+        .restart();
     },
     stop() {
       tlActive = null;

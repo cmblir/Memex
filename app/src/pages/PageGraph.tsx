@@ -24,6 +24,7 @@ import {
   computeAllowed,
   countAllNodes,
   flattenMarkdown,
+  stem,
   type VaultGraph,
 } from "../lib/graphData";
 import { createSim, type GraphSim, type SimNode } from "../lib/graphSim";
@@ -464,6 +465,140 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
       sigmaRef.current?.refresh({ skipIndexation: true });
     };
 
+    // --- Live growth: pages the ingest writes appear in the galaxy as it
+    // runs. Each write schedules a debounced link-graph rescan (Rust resolves
+    // wikilinks by stem); the result is DIFFED against the rendered graph and
+    // only the new nodes/edges are injected — graph.addNode + sim.liveAdd —
+    // so the settled layout never tears down. New stars spawn next to their
+    // first already-placed neighbour and the physics tugs them into place.
+    // The official refreshLinkGraph at run end still does the full rebuild
+    // (sizes, communities) and reconciles everything.
+    let liveTimer: number | null = null;
+    let liveInFlight = false;
+    let disposed = false;
+
+    const liveGrow = async (): Promise<void> => {
+      const renderer = sigmaRef.current;
+      const sim = simRef.current;
+      const vault = useVaultStore.getState().currentVault?.path;
+      const ing = useIngestStore.getState();
+      if (!renderer || !sim || !vault || ing.vaultPath !== vault) return;
+      if (liveInFlight) {
+        scheduleLiveGrow();
+        return;
+      }
+      liveInFlight = true;
+      try {
+        const adj = await ipc.buildLinkGraph(vault);
+        // The build effect may have torn down / rebuilt while we awaited —
+        // only patch the renderer/sim pair we started with.
+        if (disposed || sigmaRef.current !== renderer || simRef.current !== sim)
+          return;
+        const g = renderer.getGraph() as VaultGraph;
+        const s = settingsRef.current;
+        const theme = readTheme();
+        const files = flattenMarkdown(useVaultStore.getState().fileTree);
+        const allowed = computeAllowed(adj, files, {
+          tagFilter: s.tagFilter,
+          folderFilter: s.folderFilter,
+          vaultRoot: vault,
+          search: s.search,
+          existingOnly: s.existingOnly,
+          showOrphans: s.showOrphans,
+        });
+
+        // Candidate edges among allowed nodes; collect ones not rendered yet.
+        const newEdges: [string, string][] = [];
+        const newIdSet = new Set<string>();
+        for (const [src, targets] of Object.entries(adj.forward)) {
+          if (!allowed.has(src)) continue;
+          for (const tgt of targets) {
+            if (!allowed.has(tgt)) continue;
+            const srcKnown = g.hasNode(src);
+            const tgtKnown = g.hasNode(tgt);
+            if (srcKnown && tgtKnown && g.hasEdge(src, tgt)) continue;
+            if (!srcKnown) newIdSet.add(src);
+            if (!tgtKnown) newIdSet.add(tgt);
+            newEdges.push([src, tgt]);
+          }
+        }
+        if (newIdSet.size === 0 && newEdges.length === 0) return;
+
+        // Position each new node beside its first positioned endpoint so it
+        // buds off the cluster instead of streaking in from the far field.
+        const placed = new Map<string, { x: number; y: number }>();
+        const posOf = (id: string): { x: number; y: number } | null => {
+          if (g.hasNode(id))
+            return {
+              x: g.getNodeAttribute(id, "x"),
+              y: g.getNodeAttribute(id, "y"),
+            };
+          return placed.get(id) ?? null;
+        };
+        for (const id of newIdSet) {
+          let near: { x: number; y: number } | null = null;
+          for (const [a, b] of newEdges) {
+            if (a === id) near = posOf(b);
+            else if (b === id) near = posOf(a);
+            if (near) break;
+          }
+          const jitter = (): number => (Math.random() - 0.5) * 40;
+          placed.set(id, {
+            x: (near?.x ?? 0) + jitter(),
+            y: (near?.y ?? 0) + jitter(),
+          });
+        }
+        for (const id of newIdSet) {
+          const p = placed.get(id)!;
+          g.addNode(id, {
+            label: stem(id),
+            x: p.x,
+            y: p.y,
+            deg: 0,
+            size: Math.max(1, s.nodeSize),
+            unresolved: 0,
+            color: theme.starDim,
+          });
+        }
+        const addedEdges: [string, string][] = [];
+        for (const [a, b] of newEdges) {
+          if (!g.hasNode(a) || !g.hasNode(b) || g.hasEdge(a, b)) continue;
+          g.addEdge(a, b, {
+            color: theme.edge,
+            size: 0.6 * s.linkThickness,
+          });
+          addedEdges.push([a, b]);
+        }
+        // Degree-derived size for the newcomers only — existing stars keep
+        // their size until the end-of-run rebuild recomputes everything.
+        for (const id of newIdSet) {
+          const deg = g.degree(id);
+          g.mergeNodeAttributes(id, {
+            deg,
+            size:
+              Math.max(1, Math.min(5, 1 + Math.sqrt(deg) * 0.7)) * s.nodeSize,
+          });
+        }
+        sim.liveAdd([...newIdSet], addedEdges);
+        renderer.refresh();
+        setCounts({ nodes: g.order, edges: g.size });
+      } catch {
+        /* scan failed — the next write event retries */
+      } finally {
+        liveInFlight = false;
+      }
+    };
+
+    const scheduleLiveGrow = (): void => {
+      if (liveTimer != null) window.clearTimeout(liveTimer);
+      // Write tool events fire when the call STARTS; give the file ~2s to
+      // land on disk before rescanning.
+      liveTimer = window.setTimeout(() => {
+        liveTimer = null;
+        void liveGrow();
+      }, 2000);
+    };
+
     // Adopt any already-running (or just-finished) ingest on mount.
     const st = useIngestStore.getState();
     sync(st.touched, st.vaultPath, false);
@@ -477,9 +612,12 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
         return;
       }
       if (s.touched !== prev.touched) sync(s.touched, s.vaultPath, true);
+      if (s.writeCount > prev.writeCount) scheduleLiveGrow();
     });
     return () => {
+      disposed = true;
       unsub();
+      if (liveTimer != null) window.clearTimeout(liveTimer);
       if (pulseRafRef.current != null) cancelAnimationFrame(pulseRafRef.current);
     };
   }, []);
