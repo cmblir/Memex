@@ -78,6 +78,7 @@ pub fn run_prompt(prompt: &str, cwd: &str) -> Result<CliResult, String> {
         .arg("--print")
         .arg("--allowedTools")
         .arg(&allowed)
+        .env("PATH", augmented_path(&path))
         .current_dir(dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -106,16 +107,79 @@ fn locate() -> Option<String> {
             return Some(p);
         }
     }
-    let which = Command::new("/usr/bin/which").arg("claude").output().ok()?;
-    if !which.status.success() {
+    if let Ok(which) = Command::new("/usr/bin/which").arg("claude").output() {
+        if which.status.success() {
+            let s = String::from_utf8_lossy(&which.stdout).trim().to_string();
+            if !s.is_empty() {
+                return Some(s);
+            }
+        }
+    }
+    // GUI apps launched from Finder/Dock inherit launchd's minimal PATH
+    // (/usr/bin:/bin:...), so `which` misses user-level installs even when
+    // the CLI works fine in a terminal. Probe the well-known install
+    // locations directly before giving up.
+    for candidate in candidate_paths() {
+        if Path::new(&candidate).is_file() {
+            return Some(candidate);
+        }
+    }
+    // Last resort: ask the user's login shell, which sources the profile
+    // that puts custom install dirs on PATH.
+    login_shell_lookup()
+}
+
+fn candidate_paths() -> Vec<String> {
+    let home = std::env::var("HOME").unwrap_or_default();
+    vec![
+        format!("{home}/.local/bin/claude"),    // native installer (default)
+        format!("{home}/.claude/local/claude"), // claude migrate-installer
+        "/opt/homebrew/bin/claude".to_string(), // Homebrew (Apple Silicon)
+        "/usr/local/bin/claude".to_string(),    // Homebrew (Intel) / npm -g
+        format!("{home}/.npm-global/bin/claude"), // npm custom prefix
+    ]
+}
+
+fn login_shell_lookup() -> Option<String> {
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    let out = Command::new(shell)
+        .args(["-lc", "command -v claude"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
         return None;
     }
-    let s = String::from_utf8_lossy(&which.stdout).trim().to_string();
-    if s.is_empty() {
-        None
-    } else {
-        Some(s)
+    // Profiles may print banners; take the last line that looks like a path.
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .rev()
+        .map(str::trim)
+        .find(|l| l.starts_with('/'))
+        .map(String::from)
+}
+
+// PATH for the spawned CLI. The app's own PATH is minimal when launched
+// from Finder, which would break claude's Bash tool (and any shell hooks)
+// during ingest. Prepend the CLI's bin dir plus the standard user dirs.
+fn augmented_path(cli_path: &str) -> String {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let current = std::env::var("PATH").unwrap_or_default();
+    let mut dirs: Vec<String> = Vec::new();
+    let push = |dirs: &mut Vec<String>, d: String| {
+        if !d.is_empty() && !dirs.contains(&d) {
+            dirs.push(d);
+        }
+    };
+    if let Some(parent) = Path::new(cli_path).parent() {
+        push(&mut dirs, parent.to_string_lossy().into_owned());
     }
+    push(&mut dirs, format!("{home}/.local/bin"));
+    push(&mut dirs, "/opt/homebrew/bin".to_string());
+    push(&mut dirs, "/usr/local/bin".to_string());
+    for d in current.split(':') {
+        push(&mut dirs, d.to_string());
+    }
+    dirs.join(":")
 }
 
 fn wait_with_timeout(
@@ -166,6 +230,27 @@ mod tests {
         let _ = std::fs::remove_dir_all(&unique);
         let res = run_prompt("hi", unique.to_str().unwrap());
         assert!(res.is_err(), "expected error for missing cwd");
+    }
+
+    #[test]
+    fn candidate_paths_cover_known_install_locations() {
+        let home = std::env::var("HOME").unwrap_or_default();
+        let paths = candidate_paths();
+        assert!(paths.contains(&format!("{home}/.local/bin/claude")));
+        assert!(paths.contains(&"/opt/homebrew/bin/claude".to_string()));
+    }
+
+    #[test]
+    fn augmented_path_prepends_cli_dir_and_dedupes() {
+        let p = augmented_path("/Users/x/.local/bin/claude");
+        let dirs: Vec<&str> = p.split(':').collect();
+        assert_eq!(dirs[0], "/Users/x/.local/bin");
+        assert!(dirs.contains(&"/opt/homebrew/bin"));
+        // No duplicate entries.
+        let mut seen = std::collections::HashSet::new();
+        for d in &dirs {
+            assert!(seen.insert(*d), "duplicate PATH entry: {d}");
+        }
     }
 
     #[test]
