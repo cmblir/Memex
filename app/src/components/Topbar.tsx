@@ -7,8 +7,10 @@ import type { IconName } from "../lib/icons";
 import type { Lang, Strings } from "../lib/i18n";
 import { useUIStore } from "../stores/uiStore";
 import { useVaultStore } from "../stores/vaultStore";
+import { useIngestStore } from "../stores/ingestStore";
 import { ipc } from "../lib/ipc";
 import type { ClaudeStatus } from "../lib/ipc";
+import { formatTicker } from "../lib/time";
 
 export default function Topbar({ t }: { t: Strings }): JSX.Element {
   const route = useUIStore((s) => s.route);
@@ -48,6 +50,7 @@ export default function Topbar({ t }: { t: Strings }): JSX.Element {
         ))}
       </div>
       <div className="topbar-spacer" />
+      <IngestChip t={t} />
       <button className="pill" onClick={toggleCmd}>
         <Icon name="search" size={14} />
         <span>{t.ph_search}</span>
@@ -83,6 +86,57 @@ export default function Topbar({ t }: { t: Strings }): JSX.Element {
       </select>
     </div>
   );
+}
+
+// Global ingest status: spinner + elapsed while a run is live (any page),
+// then a green/red chip after it finishes until the user visits Ingest.
+// Clicking always jumps to the Ingest page.
+function IngestChip({ t }: { t: Strings }): JSX.Element | null {
+  const stage = useIngestStore((s) => s.stage);
+  const startedAt = useIngestStore((s) => s.startedAt);
+  const seen = useIngestStore((s) => s.seen);
+  const setRoute = useUIStore((s) => s.setRoute);
+  const running =
+    stage === "writing-raw" || stage === "claude" || stage === "indexing";
+
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!running) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [running]);
+
+  if (running) {
+    return (
+      <button
+        className="pill"
+        onClick={() => setRoute("ingest")}
+        title={t.ing_live_title}
+      >
+        <span className="ingest-chip-spinner" />
+        <span>
+          {t.nav_ingest} {startedAt ? formatTicker(now - startedAt) : ""}
+        </span>
+      </button>
+    );
+  }
+  if (!seen && (stage === "done" || stage === "error")) {
+    const ok = stage === "done";
+    return (
+      <button
+        className="pill"
+        onClick={() => setRoute("ingest")}
+        title={ok ? t.ing_chip_done : t.ing_chip_error}
+      >
+        <span
+          className="dot"
+          style={{ background: ok ? "#16a34a" : "#dc2626" }}
+        ></span>
+        <span>{ok ? t.ing_chip_done : t.ing_chip_error}</span>
+      </button>
+    );
+  }
+  return null;
 }
 
 function breadcrumbFor(

@@ -33,6 +33,8 @@ pub fn run() {
             commands::build_link_graph,
             commands::git_log,
             commands::claude_run,
+            commands::claude_run_stream,
+            commands::claude_cancel,
             commands::claude_check,
             commands::scan_provenance,
             commands::set_provider_key,
@@ -47,6 +49,12 @@ pub fn run() {
             commands::open_external,
         ])
         .setup(|_app| Ok(()))
-        .run(tauri::generate_context!())
-        .expect("error while running Memex");
+        .build(tauri::generate_context!())
+        .expect("error while running Memex")
+        .run(|_app, event| {
+            // Reap any in-flight claude children so they don't outlive the app.
+            if let tauri::RunEvent::Exit = event {
+                claude::cancel_all();
+            }
+        });
 }

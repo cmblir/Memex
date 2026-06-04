@@ -51,6 +51,15 @@ export interface ClaudeResult {
   status: number;
 }
 
+/// One `claude-stream` Tauri event payload (see claude.rs StreamEvent).
+export interface ClaudeStreamPayload {
+  run_id: string;
+  kind: "init" | "text" | "tool" | "result" | "raw";
+  tool: string | null;
+  detail: string | null;
+  text: string | null;
+}
+
 export interface ProvenanceRow {
   path: string;
   name: string;
@@ -145,6 +154,10 @@ export const ipc = {
   claudeCheck: () => invoke<ClaudeStatus>("claude_check"),
   claudeRun: (prompt: string, cwd: string) =>
     invoke<ClaudeResult>("claude_run", { prompt, cwd }),
+  claudeRunStream: (runId: string, prompt: string, cwd: string) =>
+    invoke<ClaudeResult>("claude_run_stream", { runId, prompt, cwd }),
+  claudeCancel: (runId: string) =>
+    invoke<boolean>("claude_cancel", { runId }),
   scanProvenance: (vaultPath: string) =>
     invoke<ProvenanceRow[]>("scan_provenance", { vaultPath }),
   setProviderKey: (providerId: string, key: string) =>

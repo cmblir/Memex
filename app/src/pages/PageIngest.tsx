@@ -1,5 +1,8 @@
 // Ingest page — drop a file or paste raw text, then call `claude` to write
 // it into `raw/<slug>.md` and ingest into the wiki per CLAUDE.md instructions.
+// The run itself lives in ingestStore (streamed events, cancel, stage), so it
+// keeps going — and stays visible via the Topbar chip — while the user
+// navigates elsewhere. This page is the form plus the live progress panel.
 
 import { useEffect, useState } from "react";
 import type { JSX } from "react";
@@ -7,37 +10,14 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { Icon } from "../lib/icons";
 import type { Strings } from "../lib/i18n";
 import { ipc } from "../lib/ipc";
+import { formatElapsed } from "../lib/time";
 import { useVaultStore } from "../stores/vaultStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useIngestStore } from "../stores/ingestStore";
-import { complete } from "../lib/chat";
-
-const INGEST_PROMPT = (slug: string, title: string) =>
-  `New source has been added at \`raw/${slug}.md\` (title: "${title}"). Please ingest it into the wiki following the workflow in CLAUDE.md:
-
-1. Read the source completely.
-2. Identify pages it affects (entities, concepts, techniques, analyses).
-3. Update existing pages with inline citations, or create new pages with required frontmatter.
-4. Create the source-summary page \`wiki/source-${slug}.md\`.
-5. Update \`wiki/index.md\` and append a \`wiki/log.md\` entry.
-6. Write an ingest report at \`ingest-reports/<datetime>-${slug}.md\` summarising what was created/modified and why.
-
-When done, output a one-line confirmation.`;
-
-function slugify(s: string): string {
-  return (
-    s
-      .toLowerCase()
-      .replace(/[^a-z0-9가-힣]+/g, "-")
-      .replace(/^-|-$/g, "")
-      .slice(0, 80) || "source"
-  );
-}
+import IngestProgress from "../components/IngestProgress";
 
 export default function PageIngest({ t }: { t: Strings }): JSX.Element {
   const currentVault = useVaultStore((s) => s.currentVault);
-  const refreshTree = useVaultStore((s) => s.refreshTree);
-  const refreshLinkGraph = useVaultStore((s) => s.refreshLinkGraph);
   const settings = useSettingsStore((s) => s.settings);
   const [over, setOver] = useState(false);
   const [title, setTitle] = useState("");
@@ -49,13 +29,17 @@ export default function PageIngest({ t }: { t: Strings }): JSX.Element {
   const finishedAt = useIngestStore((s) => s.finishedAt);
   const reportPath = useIngestStore((s) => s.reportPath);
   const storedVaultPath = useIngestStore((s) => s.vaultPath);
-  const setStage = useIngestStore((s) => s.setStage);
-  const setLog = useIngestStore((s) => s.setLog);
-  const setStartedAt = useIngestStore((s) => s.setStartedAt);
-  const setFinishedAt = useIngestStore((s) => s.setFinishedAt);
-  const setReportPath = useIngestStore((s) => s.setReportPath);
-  const setStoredVaultPath = useIngestStore((s) => s.setVaultPath);
+  const startIngest = useIngestStore((s) => s.startIngest);
+  const markSeen = useIngestStore((s) => s.markSeen);
   const resetIngest = useIngestStore((s) => s.reset);
+
+  const running =
+    stage === "writing-raw" || stage === "claude" || stage === "indexing";
+
+  // Visiting this page acknowledges a finished run (clears the Topbar chip).
+  useEffect(() => {
+    markSeen();
+  }, [stage, markSeen]);
 
   // Tauri intercepts drag-drop at the OS level (so the browser drop event
   // never fires inside the WebView). Subscribe to its native event instead
@@ -109,70 +93,11 @@ export default function PageIngest({ t }: { t: Strings }): JSX.Element {
 
   const canRun = !!currentVault && (title.trim() || body.trim());
 
-  async function run(): Promise<void> {
-    if (!canRun || !currentVault) return;
-    const finalTitle = title.trim() || `untitled-${Date.now()}`;
-    const slug = slugify(finalTitle);
-    const start = Date.now();
-    setStoredVaultPath(currentVault.path);
-    setStartedAt(start);
-    setFinishedAt(null);
-    setReportPath(null);
-    setStage("writing-raw");
-    setLog(`Writing raw/${slug}.md…`);
-    try {
-      const rawDir = `${currentVault.path}/raw`;
-      try {
-        await ipc.createFolder(currentVault.path, "raw");
-      } catch {
-        /* already exists */
-      }
-      const payload =
-        body.trim().length > 0
-          ? `# ${finalTitle}\n\n${body.trim()}\n`
-          : `# ${finalTitle}\n\n_(empty)_\n`;
-      await ipc.writeFile(`${rawDir}/${slug}.md`, payload);
-      await refreshTree();
-
-      setStage("claude");
-      setLog((l) => `${l}\nInvoking model…`);
-      const out = await complete({
-        task: "ingest",
-        cwd: currentVault.path,
-        messages: [{ role: "user", content: INGEST_PROMPT(slug, finalTitle) }],
-      });
-      setLog((l) => `${l}\n\n${out}`);
-
-      setStage("indexing");
-      setLog((l) => `${l}\n\nRefreshing index & link graph…`);
-      await refreshTree();
-      await refreshLinkGraph();
-
-      const today = new Date().toISOString().slice(0, 10);
-      setReportPath(`${currentVault.path}/ingest-reports/${today}-${slug}.md`);
-      setFinishedAt(Date.now());
-      setStage("done");
-    } catch (err) {
-      setFinishedAt(Date.now());
-      setStage("error");
-      setLog((l) => `${l}\n\nERROR: ${String(err)}`);
-    }
-  }
-
   function resetForAnother(): void {
     resetIngest();
     setTitle("");
     setBody("");
     setDropError(null);
-  }
-
-  function formatElapsed(ms: number): string {
-    if (ms < 1000) return `${ms} ms`;
-    const s = ms / 1000;
-    if (s < 60) return `${s.toFixed(1)} s`;
-    const m = Math.floor(s / 60);
-    const rem = Math.round(s - m * 60);
-    return `${m}m ${rem}s`;
   }
 
   async function browseAndLoad(): Promise<void> {
@@ -276,148 +201,161 @@ export default function PageIngest({ t }: { t: Strings }): JSX.Element {
         </div>
       ) : null}
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 320px",
-          gap: 24,
-          marginTop: 16,
-        }}
-      >
-        <div className="col">
-          <div className={"dropzone" + (over ? " over" : "")}>
-            <Icon name="upload" size={26} />
-            <div className="dropzone-title">{t.ing_drop}</div>
-            <div className="dropzone-sub">
-              Drop a text/markdown file anywhere on this window — or
-            </div>
-            <button
-              className="btn"
-              style={{ marginTop: 10 }}
-              onClick={() => void browseAndLoad()}
-            >
-              {t.ing_browse}
-            </button>
-            {dropError ? (
-              <div
-                style={{
-                  marginTop: 10,
-                  color: "#dc2626",
-                  fontSize: 12,
-                }}
+      {stage === "cancelled" ? (
+        <div
+          className="card"
+          style={{
+            marginTop: 16,
+            padding: 18,
+            display: "flex",
+            alignItems: "center",
+            gap: 16,
+            flexWrap: "wrap",
+          }}
+          role="status"
+        >
+          <Icon name="info" size={18} />
+          <div style={{ flex: 1, minWidth: 200 }}>{t.ing_cancelled}</div>
+          <button className="btn btn-primary" onClick={resetForAnother}>
+            {t.ing_run_again}
+          </button>
+        </div>
+      ) : null}
+
+      {running ? (
+        <IngestProgress t={t} />
+      ) : (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 320px",
+            gap: 24,
+            marginTop: 16,
+          }}
+        >
+          <div className="col">
+            <div className={"dropzone" + (over ? " over" : "")}>
+              <Icon name="upload" size={26} />
+              <div className="dropzone-title">{t.ing_drop}</div>
+              <div className="dropzone-sub">
+                Drop a text/markdown file anywhere on this window — or
+              </div>
+              <button
+                className="btn"
+                style={{ marginTop: 10 }}
+                onClick={() => void browseAndLoad()}
               >
-                {dropError}
+                {t.ing_browse}
+              </button>
+              {dropError ? (
+                <div
+                  style={{
+                    marginTop: 10,
+                    color: "#dc2626",
+                    fontSize: 12,
+                  }}
+                >
+                  {dropError}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="field">
+              <label>Title</label>
+              <input
+                className="input"
+                placeholder="e.g. Byte Pair Encoding"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+              />
+            </div>
+
+            <div className="field">
+              <label>{t.ing_or_paste}</label>
+              <textarea
+                className="textarea"
+                rows={10}
+                placeholder={t.ing_paste_ph}
+                value={body}
+                onChange={(e) => setBody(e.target.value)}
+              />
+            </div>
+
+            <div className="row">
+              <span className="chip">
+                <Icon name="bolt" size={11} />{" "}
+                {settings?.ingest_model ?? "claude-cli"}
+              </span>
+              <span className="muted" style={{ fontSize: 12 }}>
+                vault: {currentVault?.path ?? "(none)"}
+              </span>
+              <button
+                className="btn btn-primary"
+                style={{ marginLeft: "auto" }}
+                onClick={() => void startIngest(title, body)}
+                disabled={!canRun}
+              >
+                <Icon name="sparkles" size={14} /> {t.ing_run}
+              </button>
+            </div>
+          </div>
+
+          <aside className="col">
+            <div className="card">
+              <div
+                className="section-title"
+                style={{ fontSize: 13.5, marginBottom: 12 }}
+              >
+                {t.ing_pipeline}
+              </div>
+              <div className="stepper">
+                <StepRow
+                  idx={1}
+                  title={t.ing_step_read}
+                  active={false}
+                  done={stage === "done"}
+                />
+                <StepRow
+                  idx={2}
+                  title={t.ing_step_claude}
+                  active={false}
+                  done={stage === "done"}
+                />
+                <StepRow
+                  idx={3}
+                  title={t.ing_step_refresh}
+                  active={false}
+                  done={stage === "done"}
+                />
+              </div>
+            </div>
+            {log ? (
+              <div className="card" style={{ minHeight: 80 }}>
+                <div
+                  className="section-title"
+                  style={{ fontSize: 13.5, marginBottom: 6 }}
+                >
+                  Log
+                </div>
+                <pre
+                  style={{
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 12,
+                    color: stage === "error" ? "#dc2626" : "var(--ink-3)",
+                    margin: 0,
+                    maxHeight: 280,
+                    overflow: "auto",
+                  }}
+                >
+                  {log}
+                </pre>
               </div>
             ) : null}
-          </div>
-
-          <div className="field">
-            <label>Title</label>
-            <input
-              className="input"
-              placeholder="e.g. Byte Pair Encoding"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-            />
-          </div>
-
-          <div className="field">
-            <label>{t.ing_or_paste}</label>
-            <textarea
-              className="textarea"
-              rows={10}
-              placeholder={t.ing_paste_ph}
-              value={body}
-              onChange={(e) => setBody(e.target.value)}
-            />
-          </div>
-
-          <div className="row">
-            <span className="chip">
-              <Icon name="bolt" size={11} />{" "}
-              {settings?.ingest_model ?? "claude-cli"}
-            </span>
-            <span className="muted" style={{ fontSize: 12 }}>
-              vault: {currentVault?.path ?? "(none)"}
-            </span>
-            <button
-              className="btn btn-primary"
-              style={{ marginLeft: "auto" }}
-              onClick={() => void run()}
-              disabled={
-                !canRun ||
-                stage === "claude" ||
-                stage === "writing-raw" ||
-                stage === "indexing"
-              }
-            >
-              <Icon name="sparkles" size={14} />{" "}
-              {stage === "claude" ||
-              stage === "writing-raw" ||
-              stage === "indexing"
-                ? "Running…"
-                : t.ing_run}
-            </button>
-          </div>
+          </aside>
         </div>
-
-        <aside className="col">
-          <div className="card">
-            <div
-              className="section-title"
-              style={{ fontSize: 13.5, marginBottom: 12 }}
-            >
-              {t.ing_pipeline}
-            </div>
-            <div className="stepper">
-              <StepRow
-                idx={1}
-                title={t.ing_step_read}
-                active={stage === "writing-raw"}
-                done={
-                  stage === "claude" ||
-                  stage === "indexing" ||
-                  stage === "done"
-                }
-              />
-              <StepRow
-                idx={2}
-                title={t.ing_step_claude}
-                active={stage === "claude"}
-                done={stage === "indexing" || stage === "done"}
-              />
-              <StepRow
-                idx={3}
-                title={t.ing_step_refresh}
-                active={stage === "indexing"}
-                done={stage === "done"}
-              />
-            </div>
-          </div>
-          <div className="card" style={{ minHeight: 80 }}>
-            <div
-              className="section-title"
-              style={{ fontSize: 13.5, marginBottom: 6 }}
-            >
-              Log
-            </div>
-            <pre
-              style={{
-                whiteSpace: "pre-wrap",
-                wordBreak: "break-word",
-                fontFamily: "var(--font-mono)",
-                fontSize: 12,
-                color: stage === "error" ? "#dc2626" : "var(--ink-3)",
-                margin: 0,
-                maxHeight: 280,
-                overflow: "auto",
-              }}
-            >
-              {log || "—"}
-            </pre>
-          </div>
-        </aside>
-      </div>
+      )}
     </div>
   );
 }

@@ -109,6 +109,38 @@ pub async fn claude_run(prompt: String, cwd: String) -> Result<CliResult, String
         .map_err(|e| format!("join failed: {e}"))?
 }
 
+/// Streaming claude run: emits a `claude-stream` event per parsed CLI event
+/// so the frontend can render live progress, then resolves with the final
+/// result like `claude_run`. Cancel with `claude_cancel(run_id)`.
+#[tauri::command]
+pub async fn claude_run_stream(
+    app: tauri::AppHandle,
+    run_id: String,
+    prompt: String,
+    cwd: String,
+) -> Result<CliResult, String> {
+    use tauri::Emitter;
+    tauri::async_runtime::spawn_blocking(move || {
+        let id = run_id.clone();
+        claude::run_prompt_stream(&run_id, &prompt, &cwd, move |event| {
+            let _ = app.emit(
+                "claude-stream",
+                claude::StreamEvent {
+                    run_id: id.clone(),
+                    event,
+                },
+            );
+        })
+    })
+    .await
+    .map_err(|e| format!("join failed: {e}"))?
+}
+
+#[tauri::command]
+pub fn claude_cancel(run_id: String) -> bool {
+    claude::cancel(&run_id)
+}
+
 #[tauri::command]
 pub fn scan_provenance(vault_path: String) -> Result<Vec<ProvenanceRow>, String> {
     provenance::scan_provenance(&vault_path)

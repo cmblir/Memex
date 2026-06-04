@@ -1560,3 +1560,227 @@ hr {
   border: 2px solid var(--bg);
   box-shadow: 0 0 0 1px var(--line-strong);
 }
+
+/* ── Ingest live progress ("mission control") ───────────────────────────── */
+
+.ingest-live {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.ingest-live-hero {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--bg-elev);
+}
+
+/* Pulsing orb — concentric rings breathing around a solid core. */
+.ingest-orb {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  flex-shrink: 0;
+}
+.ingest-orb-core {
+  position: absolute;
+  inset: 16px;
+  border-radius: 50%;
+  background: var(--ink);
+  animation: ingest-core 2.4s ease-in-out infinite;
+}
+.ingest-orb-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1.5px solid var(--ink-4);
+  opacity: 0;
+  animation: ingest-ring 2.4s ease-out infinite;
+}
+.ingest-orb-ring.r2 {
+  animation-delay: 1.2s;
+}
+@keyframes ingest-core {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.18);
+  }
+}
+@keyframes ingest-ring {
+  0% {
+    transform: scale(0.45);
+    opacity: 0.85;
+  }
+  100% {
+    transform: scale(1.25);
+    opacity: 0;
+  }
+}
+
+.ingest-live-headline {
+  flex: 1;
+  min-width: 0;
+}
+.ingest-live-title {
+  font-weight: 650;
+  font-size: 16px;
+}
+.ingest-live-action {
+  margin-top: 3px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ingest-live-meta {
+  margin-top: 3px;
+  font-size: 12px;
+}
+.ingest-cancel {
+  flex-shrink: 0;
+}
+
+/* Constellation of touched files. */
+.ingest-constellation-card {
+  padding: 14px 16px 8px;
+}
+.ingest-constellation {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.ingest-hub {
+  fill: var(--ink);
+}
+.ingest-edge {
+  stroke: var(--line-strong);
+  stroke-width: 0.7;
+}
+.ingest-edge.write {
+  stroke: var(--c-entity);
+  stroke-opacity: 0.45;
+  stroke-width: 1;
+}
+.ingest-star {
+  fill: var(--ink-4);
+  cursor: pointer;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: ingest-star-in 0.5s ease-out backwards;
+}
+.ingest-star.write {
+  fill: var(--c-entity);
+}
+.ingest-star:hover {
+  stroke: var(--ink);
+  stroke-width: 1.5;
+}
+@keyframes ingest-star-in {
+  from {
+    transform: scale(0);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+.ingest-star-label {
+  font-size: 9px;
+  fill: var(--ink-3);
+  text-anchor: middle;
+  pointer-events: none;
+  font-family: var(--font-mono);
+}
+
+/* Activity feed. */
+.ingest-feed-card {
+  padding: 14px 16px;
+}
+.ingest-feed {
+  max-height: 240px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+.ingest-feed-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--ink-3);
+  animation: ingest-row-in 0.25s ease-out;
+}
+.ingest-feed-row.kind-tool {
+  color: var(--ink-2);
+}
+.ingest-feed-row.kind-result {
+  color: var(--c-entity);
+}
+.ingest-feed-time {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--ink-4);
+  flex-shrink: 0;
+}
+.ingest-feed-text {
+  font-family: var(--font-mono);
+  word-break: break-word;
+  min-width: 0;
+}
+@keyframes ingest-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.ingest-live-stats {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+/* Topbar chip while a run is live / finished. */
+.ingest-chip-spinner {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid var(--ink-4);
+  border-top-color: var(--ink);
+  animation: ingest-spin 0.9s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes ingest-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ingest-orb-core,
+  .ingest-orb-ring,
+  .ingest-star,
+  .ingest-feed-row,
+  .ingest-chip-spinner {
+    animation: none;
+  }
+  .ingest-orb-ring {
+    opacity: 0.4;
+  }
+}

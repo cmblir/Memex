@@ -59,6 +59,16 @@ export interface Strings {
   ing_open_index: string;
   ing_open_report: string;
   ing_run_again: string;
+  ing_live_title: string;
+  ing_live_warmup: string;
+  ing_live_activity: string;
+  ing_live_files: string;
+  ing_live_reads: string;
+  ing_live_writes: string;
+  ing_cancel: string;
+  ing_cancelled: string;
+  ing_chip_done: string;
+  ing_chip_error: string;
   q_title: string;
   q_lede: string;
   q_ph: string;
@@ -202,6 +212,16 @@ export const STRINGS: Record<Lang, Strings> = {
     ing_open_index: "Open wiki index",
     ing_open_report: "Open ingest report",
     ing_run_again: "Ingest another",
+    ing_live_title: "Writing your wiki…",
+    ing_live_warmup: "Starting Claude…",
+    ing_live_activity: "Live activity",
+    ing_live_files: "Pages touched",
+    ing_live_reads: "read",
+    ing_live_writes: "written",
+    ing_cancel: "Cancel",
+    ing_cancelled: "Ingest cancelled",
+    ing_chip_done: "Ingest done",
+    ing_chip_error: "Ingest failed",
     q_title: "Ask the wiki",
     q_lede:
       "Memex answers from your wiki first, then reaches into raw sources only when needed. Every claim ships with a citation.",
@@ -351,6 +371,16 @@ export const STRINGS: Record<Lang, Strings> = {
     ing_open_index: "위키 인덱스 열기",
     ing_open_report: "Ingest 보고서 열기",
     ing_run_again: "새로 가져오기",
+    ing_live_title: "LLM 위키 작성 중…",
+    ing_live_warmup: "Claude 시작 중…",
+    ing_live_activity: "실시간 활동",
+    ing_live_files: "작업한 페이지",
+    ing_live_reads: "읽음",
+    ing_live_writes: "작성",
+    ing_cancel: "취소",
+    ing_cancelled: "가져오기가 취소되었습니다",
+    ing_chip_done: "가져오기 완료",
+    ing_chip_error: "가져오기 실패",
     q_title: "위키에 질문하기",
     q_lede:
       "Memex는 먼저 위키에서 답을 찾고, 부족할 때만 원본 소스로 들어갑니다. 모든 주장에는 인용이 따라옵니다.",
@@ -500,6 +530,16 @@ export const STRINGS: Record<Lang, Strings> = {
     ing_open_index: "ウィキインデックスを開く",
     ing_open_report: "取り込みレポートを開く",
     ing_run_again: "別のソースを取り込む",
+    ing_live_title: "LLM がウィキを作成中…",
+    ing_live_warmup: "Claude を起動中…",
+    ing_live_activity: "ライブアクティビティ",
+    ing_live_files: "作業したページ",
+    ing_live_reads: "読込",
+    ing_live_writes: "作成",
+    ing_cancel: "キャンセル",
+    ing_cancelled: "取り込みをキャンセルしました",
+    ing_chip_done: "取り込み完了",
+    ing_chip_error: "取り込み失敗",
     q_title: "ウィキに質問",
     q_lede:
       "Memex はまずウィキから答え、必要なときだけ原本に降りていきます。すべての主張に出典が付きます。",

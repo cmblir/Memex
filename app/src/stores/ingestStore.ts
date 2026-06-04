@@ -1,11 +1,17 @@
-// Ingest workflow state lifted out of PageIngest so the success banner
-// (and any in-flight run) survives navigating to another page and back.
+// Ingest workflow state + run orchestration. Lives outside PageIngest so an
+// in-flight run keeps streaming (and the success banner survives) while the
+// user navigates to other pages. PageIngest only holds form drafts.
 //
-// PageIngest is otherwise stateless wrt the run itself; form drafts
-// (title/body) still live on the page so unrelated typing in another
-// tab does not bleed back here.
+// Streaming: claude_run_stream emits `claude-stream` Tauri events; a single
+// module-level listener forwards events for the active run into this store.
+// HTTP providers (ollama etc.) have no stream — they fall back to the
+// blocking chat path and the UI shows stage + elapsed time only.
 
 import { create } from "zustand";
+import { listen } from "@tauri-apps/api/event";
+import { ipc } from "../lib/ipc";
+import type { ClaudeStreamPayload } from "../lib/ipc";
+import { useVaultStore } from "./vaultStore";
 
 export type IngestStage =
   | "idle"
@@ -13,44 +19,250 @@ export type IngestStage =
   | "claude"
   | "indexing"
   | "done"
+  | "cancelled"
   | "error";
+
+export interface IngestEvent {
+  at: number;
+  kind: ClaudeStreamPayload["kind"];
+  tool?: string;
+  detail?: string;
+  text?: string;
+}
+
+export interface TouchedFile {
+  path: string; // vault-relative
+  write: boolean; // true once any Write/Edit hit it
+}
+
+const WRITE_TOOLS = new Set(["Write", "Edit", "NotebookEdit"]);
+
+const INGEST_PROMPT = (slug: string, title: string) =>
+  `New source has been added at \`raw/${slug}.md\` (title: "${title}"). Please ingest it into the wiki following the workflow in CLAUDE.md:
+
+1. Read the source completely.
+2. Identify pages it affects (entities, concepts, techniques, analyses).
+3. Update existing pages with inline citations, or create new pages with required frontmatter.
+4. Create the source-summary page \`wiki/source-${slug}.md\`.
+5. Update \`wiki/index.md\` and append a \`wiki/log.md\` entry.
+6. Write an ingest report at \`ingest-reports/<datetime>-${slug}.md\` summarising what was created/modified and why.
+
+When done, output a one-line confirmation.`;
+
+function slugify(s: string): string {
+  return (
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9가-힣]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 80) || "source"
+  );
+}
 
 interface IngestState {
   stage: IngestStage;
   log: string;
+  events: IngestEvent[];
+  touched: TouchedFile[];
+  readCount: number;
+  writeCount: number;
+  model: string | null;
+  runId: string | null;
   startedAt: number | null;
   finishedAt: number | null;
   reportPath: string | null;
   vaultPath: string | null;
-  setStage: (stage: IngestStage) => void;
-  setLog: (next: string | ((prev: string) => string)) => void;
-  setStartedAt: (t: number | null) => void;
-  setFinishedAt: (t: number | null) => void;
-  setReportPath: (p: string | null) => void;
-  setVaultPath: (p: string | null) => void;
+  /** false after a run finishes until the user visits the Ingest page —
+   * drives the "done/failed" Topbar chip. */
+  seen: boolean;
+  startIngest: (title: string, body: string) => Promise<void>;
+  cancelIngest: () => void;
+  markSeen: () => void;
   reset: () => void;
 }
 
-export const useIngestStore = create<IngestState>((set) => ({
+function relativize(path: string, vaultPath: string | null): string {
+  if (vaultPath && path.startsWith(vaultPath)) {
+    return path.slice(vaultPath.length).replace(/^\//, "");
+  }
+  return path;
+}
+
+export const useIngestStore = create<IngestState>((set, get) => ({
   stage: "idle",
   log: "",
+  events: [],
+  touched: [],
+  readCount: 0,
+  writeCount: 0,
+  model: null,
+  runId: null,
   startedAt: null,
   finishedAt: null,
   reportPath: null,
   vaultPath: null,
-  setStage: (stage) => set({ stage }),
-  setLog: (next) =>
-    set((s) => ({ log: typeof next === "function" ? next(s.log) : next })),
-  setStartedAt: (startedAt) => set({ startedAt }),
-  setFinishedAt: (finishedAt) => set({ finishedAt }),
-  setReportPath: (reportPath) => set({ reportPath }),
-  setVaultPath: (vaultPath) => set({ vaultPath }),
+  seen: true,
+
+  async startIngest(title: string, body: string) {
+    const vault = useVaultStore.getState().currentVault;
+    if (!vault) return;
+    const s = get();
+    if (s.stage === "writing-raw" || s.stage === "claude" || s.stage === "indexing")
+      return; // one run at a time
+
+    const finalTitle = title.trim() || `untitled-${Date.now()}`;
+    const slug = slugify(finalTitle);
+    const runId = crypto.randomUUID();
+    await ensureStreamListener();
+
+    set({
+      stage: "writing-raw",
+      log: `Writing raw/${slug}.md…`,
+      events: [],
+      touched: [],
+      readCount: 0,
+      writeCount: 0,
+      model: null,
+      runId,
+      startedAt: Date.now(),
+      finishedAt: null,
+      reportPath: null,
+      vaultPath: vault.path,
+      seen: true,
+    });
+
+    try {
+      try {
+        await ipc.createFolder(vault.path, "raw");
+      } catch {
+        /* already exists */
+      }
+      const payload =
+        body.trim().length > 0
+          ? `# ${finalTitle}\n\n${body.trim()}\n`
+          : `# ${finalTitle}\n\n_(empty)_\n`;
+      await ipc.writeFile(`${vault.path}/raw/${slug}.md`, payload);
+      await useVaultStore.getState().refreshTree();
+
+      set({ stage: "claude" });
+      const settings = await ipc.getSettings();
+      const prompt = INGEST_PROMPT(slug, finalTitle);
+      let out: string;
+      if (settings.ingest_provider === "anthropic-cli") {
+        const res = await ipc.claudeRunStream(runId, prompt, vault.path);
+        if (res.status !== 0) {
+          throw new Error(res.stderr.trim() || `claude exit ${res.status}`);
+        }
+        out = res.stdout.trim();
+      } else {
+        // HTTP providers have no tool stream; blocking call, stage UI only.
+        const res = await ipc.chatComplete({
+          provider_id: settings.ingest_provider,
+          model: settings.ingest_model,
+          messages: [{ role: "user", content: prompt }],
+        });
+        out = res.content.trim();
+      }
+      set((st) => ({ log: `${st.log}\n\n${out}` }));
+
+      set({ stage: "indexing" });
+      await useVaultStore.getState().refreshTree();
+      await useVaultStore.getState().refreshLinkGraph();
+
+      const today = new Date().toISOString().slice(0, 10);
+      set({
+        reportPath: `${vault.path}/ingest-reports/${today}-${slug}.md`,
+        finishedAt: Date.now(),
+        stage: "done",
+        seen: false,
+      });
+    } catch (err) {
+      const cancelled = String(err).includes("cancelled");
+      set((st) => ({
+        finishedAt: Date.now(),
+        stage: cancelled ? "cancelled" : "error",
+        seen: false,
+        log: cancelled ? st.log : `${st.log}\n\nERROR: ${String(err)}`,
+      }));
+    }
+  },
+
+  cancelIngest() {
+    const { runId, stage } = get();
+    if (!runId || stage !== "claude") return;
+    // Backend kill makes claude_run_stream reject with "cancelled";
+    // startIngest's catch handler then flips the stage.
+    void ipc.claudeCancel(runId);
+  },
+
+  markSeen: () => set({ seen: true }),
+
   reset: () =>
     set({
       stage: "idle",
       log: "",
+      events: [],
+      touched: [],
+      readCount: 0,
+      writeCount: 0,
+      model: null,
+      runId: null,
       startedAt: null,
       finishedAt: null,
       reportPath: null,
+      seen: true,
     }),
 }));
+
+// --- claude-stream listener (module-level, registered once) ---------------
+
+let listenerStarted = false;
+
+async function ensureStreamListener(): Promise<void> {
+  if (listenerStarted) return;
+  listenerStarted = true;
+  await listen<ClaudeStreamPayload>("claude-stream", (e) => {
+    const st = useIngestStore.getState();
+    if (!st.runId || e.payload.run_id !== st.runId) return;
+    applyStreamEvent(e.payload);
+  });
+}
+
+function applyStreamEvent(p: ClaudeStreamPayload): void {
+  useIngestStore.setState((st) => {
+    const ev: IngestEvent = {
+      at: Date.now(),
+      kind: p.kind,
+      tool: p.tool ?? undefined,
+      detail: p.detail ? relativize(p.detail, st.vaultPath) : undefined,
+      text: p.text ?? undefined,
+    };
+    const next: Partial<IngestState> = {
+      // Cap the feed so a pathological run cannot grow memory unbounded.
+      events: [...st.events.slice(-499), ev],
+    };
+    if (p.kind === "init" && p.text) next.model = p.text;
+    if (p.kind === "tool" && p.tool && ev.detail) {
+      const isWrite = WRITE_TOOLS.has(p.tool);
+      const isRead = p.tool === "Read";
+      if (isWrite || isRead) {
+        if (isWrite) next.writeCount = st.writeCount + 1;
+        else next.readCount = st.readCount + 1;
+        const existing = st.touched.find((f) => f.path === ev.detail);
+        if (existing) {
+          if (isWrite && !existing.write) {
+            next.touched = st.touched.map((f) =>
+              f.path === ev.detail ? { ...f, write: true } : f,
+            );
+          }
+        } else {
+          next.touched = [
+            ...st.touched,
+            { path: ev.detail, write: isWrite },
+          ];
+        }
+      }
+    }
+    return next;
+  });
+}
