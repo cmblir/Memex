@@ -35,7 +35,22 @@ import {
 import type { Strings } from "../lib/i18n";
 import { useUIStore } from "../stores/uiStore";
 import { useVaultStore } from "../stores/vaultStore";
+import { useIngestStore } from "../stores/ingestStore";
 import { ipc } from "../lib/ipc";
+
+// Live-ingest node tints — pages the in-flight run wrote glow gold, pages it
+// only read glow ice blue. Both sit inside the cosmic palette so they read as
+// "hot" stars rather than UI chrome.
+const INGEST_WRITE_COLOR = "#ffd27a";
+const INGEST_READ_COLOR = "#7fe1ff";
+const PULSE_MS = 900;
+
+interface IngestGlow {
+  /** absolute node id → was it written (vs only read) */
+  tint: Map<string, boolean>;
+  pulseId: string | null;
+  pulseScale: number;
+}
 
 export default function PageGraph({ t }: { t: Strings }): JSX.Element {
   const adjacency = useVaultStore((s) => s.adjacency);
@@ -52,6 +67,15 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
   // Markdown paths sorted oldest→newest by mtime — the order nodes pop in
   // during the timelapse.
   const tlOrderRef = useRef<string[]>([]);
+  // Live-ingest glow state. A ref (not state) so the nodeReducer closure in
+  // the build effect always sees the current value without rebuilding the
+  // renderer on every streamed event.
+  const ingestGlowRef = useRef<IngestGlow>({
+    tint: new Map(),
+    pulseId: null,
+    pulseScale: 1,
+  });
+  const pulseRafRef = useRef<number | null>(null);
 
   const [settings, setSettings] = useState<GraphSettings>(() =>
     loadGraphSettings(),
@@ -183,17 +207,34 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
       clearHighlight();
     });
     renderer.setSetting("nodeReducer", (n, data) => {
-      if (!hoveredNeighbors) return data;
+      // Live-ingest tint first: pages the running (or just-finished) ingest
+      // touched stay recoloured — written gold, read ice — and the most
+      // recently touched one pulses with a label flash. Hover logic then
+      // layers on top so dimming still works.
+      let d = data;
+      const glow = ingestGlowRef.current;
+      const written = glow.tint.get(n);
+      if (written !== undefined) {
+        d = {
+          ...d,
+          color: written ? INGEST_WRITE_COLOR : INGEST_READ_COLOR,
+          zIndex: 2,
+        };
+        if (glow.pulseId === n) {
+          d = { ...d, size: d.size * glow.pulseScale, forceLabel: true };
+        }
+      }
+      if (!hoveredNeighbors) return d;
       // Only the hovered node shows a label — forcing every neighbour's label
       // stacked them into an unreadable garble. Neighbours stay bright; the
       // rest dim.
       if (n === hoveredNode) {
         // forceLabel only — NOT `highlighted`, which draws the white hover box
         // + ring. User wants just the label text.
-        return { ...data, forceLabel: true, zIndex: 2 };
+        return { ...d, forceLabel: true, zIndex: 2 };
       }
-      if (hoveredNeighbors.has(n)) return { ...data, label: "", zIndex: 1 };
-      return { ...data, color: theme.starDim, label: "", zIndex: 0 };
+      if (hoveredNeighbors.has(n)) return { ...d, label: "", zIndex: 1 };
+      return { ...d, color: theme.starDim, label: "", zIndex: 0 };
     });
     // Faint edges by default (Obsidian hairlines). On hover, the hovered star's
     // links glow and the rest are hidden so its neighbourhood pops.
@@ -372,6 +413,76 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
       window.clearTimeout(safety);
     };
   }, [uiTheme]);
+
+  // Live-ingest glow — mirror ingestStore's touched files into the reducer
+  // ref and pulse the newest touch. Subscribes once; every change is just a
+  // cheap sigma refresh (no graph/sim rebuild). Tints survive the run ending
+  // so the user can see what the ingest changed; they clear when the store
+  // resets (new run / "ingest another").
+  useEffect(() => {
+    const glow = ingestGlowRef.current;
+
+    const startPulse = (id: string): void => {
+      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+      if (pulseRafRef.current != null) cancelAnimationFrame(pulseRafRef.current);
+      const start = performance.now();
+      const tick = (): void => {
+        const r = sigmaRef.current;
+        const p = (performance.now() - start) / PULSE_MS;
+        if (p >= 1 || !r) {
+          glow.pulseId = null;
+          glow.pulseScale = 1;
+          pulseRafRef.current = null;
+          r?.refresh({ skipIndexation: true });
+          return;
+        }
+        glow.pulseId = id;
+        // Swell up and ease back: 1 → ~2.6 → 1.
+        glow.pulseScale = 1 + 1.6 * Math.sin(Math.PI * p);
+        r.refresh({ skipIndexation: true });
+        pulseRafRef.current = requestAnimationFrame(tick);
+      };
+      pulseRafRef.current = requestAnimationFrame(tick);
+    };
+
+    const sync = (
+      touched: { path: string; write: boolean }[],
+      ingestVault: string | null,
+      pulse: boolean,
+    ): void => {
+      const vault = useVaultStore.getState().currentVault?.path;
+      if (!vault || !ingestVault || ingestVault !== vault) return;
+      let newest: string | null = null;
+      const next = new Map<string, boolean>();
+      for (const f of touched) {
+        const abs = `${vault}/${f.path}`;
+        next.set(abs, f.write);
+        if (glow.tint.get(abs) !== f.write) newest = abs;
+      }
+      glow.tint = next;
+      if (pulse && newest) startPulse(newest);
+      sigmaRef.current?.refresh({ skipIndexation: true });
+    };
+
+    // Adopt any already-running (or just-finished) ingest on mount.
+    const st = useIngestStore.getState();
+    sync(st.touched, st.vaultPath, false);
+
+    const unsub = useIngestStore.subscribe((s, prev) => {
+      if (s.stage === "idle" && prev.stage !== "idle") {
+        // Store reset — drop the glow.
+        glow.tint = new Map();
+        glow.pulseId = null;
+        sigmaRef.current?.refresh({ skipIndexation: true });
+        return;
+      }
+      if (s.touched !== prev.touched) sync(s.touched, s.vaultPath, true);
+    });
+    return () => {
+      unsub();
+      if (pulseRafRef.current != null) cancelAnimationFrame(pulseRafRef.current);
+    };
+  }, []);
 
   // Timelapse — replay the vault's growth in creation order with LIVE physics.
   // The sim is reset to empty, then nodes are revealed oldest-first; each one
