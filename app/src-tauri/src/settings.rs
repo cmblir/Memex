@@ -32,8 +32,17 @@ impl Default for Settings {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderFlags {
+    // anthropic_cli defaults to true: it's the app's primary path and was
+    // implicitly always-on before flags existed for CLIs, so existing
+    // installs keep working after upgrade.
+    #[serde(default = "default_true")]
+    pub anthropic_cli: bool,
+    #[serde(default)]
+    pub gemini_cli: bool,
+    #[serde(default)]
+    pub codex_cli: bool,
     #[serde(default)]
     pub anthropic_api: bool,
     #[serde(default)]
@@ -44,6 +53,25 @@ pub struct ProviderFlags {
     pub ollama: bool,
     #[serde(default)]
     pub openrouter: bool,
+}
+
+impl Default for ProviderFlags {
+    fn default() -> Self {
+        Self {
+            anthropic_cli: true,
+            gemini_cli: false,
+            codex_cli: false,
+            anthropic_api: false,
+            openai_api: false,
+            google_api: false,
+            ollama: false,
+            openrouter: false,
+        }
+    }
+}
+
+fn default_true() -> bool {
+    true
 }
 
 fn default_query_provider() -> String {
@@ -132,11 +160,31 @@ mod tests {
         let s = Settings::default();
         assert_eq!(s.query_provider, "anthropic-cli");
         assert_eq!(s.ingest_provider, "anthropic-cli");
+        assert!(s.providers.anthropic_cli); // primary path stays on
+        assert!(!s.providers.gemini_cli);
+        assert!(!s.providers.codex_cli);
         assert!(!s.providers.anthropic_api);
         assert!(!s.providers.openai_api);
         assert!(!s.providers.google_api);
         assert!(!s.providers.ollama);
         assert!(!s.providers.openrouter);
+    }
+
+    #[test]
+    fn legacy_settings_json_keeps_claude_cli_enabled() {
+        with_isolated_data("legacy-flags", |dir| {
+            // Pre-CLI-flags settings.json — anthropic_cli absent must
+            // default to true so upgrades don't break the working setup.
+            std::fs::write(
+                dir.join("settings.json"),
+                r#"{ "providers": { "ollama": true } }"#,
+            )
+            .unwrap();
+            let s = load();
+            assert!(s.providers.anthropic_cli);
+            assert!(!s.providers.gemini_cli);
+            assert!(s.providers.ollama);
+        });
     }
 
     #[test]

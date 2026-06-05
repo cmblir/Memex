@@ -17,7 +17,7 @@ import OllamaSetup from "../components/OllamaSetup";
 
 export interface ProviderDef {
   id: ProviderId;
-  flag: keyof MemexSettings["providers"] | null; // null for CLI (no toggle)
+  flag: keyof MemexSettings["providers"]; // connection gate — picker shows connected only
   name: string;
   kind: "cli" | "api" | "local";
   needsKey: boolean;
@@ -28,7 +28,7 @@ export interface ProviderDef {
 export const PROVIDERS: ProviderDef[] = [
   {
     id: "anthropic-cli",
-    flag: null,
+    flag: "anthropic_cli",
     name: "Claude Code (CLI)",
     kind: "cli",
     needsKey: false,
@@ -37,7 +37,7 @@ export const PROVIDERS: ProviderDef[] = [
   },
   {
     id: "gemini-cli",
-    flag: null,
+    flag: "gemini_cli",
     name: "Gemini CLI",
     kind: "cli",
     needsKey: false,
@@ -46,7 +46,7 @@ export const PROVIDERS: ProviderDef[] = [
   },
   {
     id: "codex-cli",
-    flag: null,
+    flag: "codex_cli",
     name: "Codex CLI",
     kind: "cli",
     needsKey: false,
@@ -223,9 +223,9 @@ function useEnabledProviders(): ProviderDef[] {
   const settings = useSettingsStore((s) => s.settings);
   return useMemo(() => {
     if (!settings) return [PROVIDERS[0]];
-    return PROVIDERS.filter(
-      (p) => p.flag === null || settings.providers[p.flag] === true,
-    );
+    // Connected providers only — disconnected ones must not appear in the
+    // model picker.
+    return PROVIDERS.filter((p) => settings.providers[p.flag] === true);
   }, [settings]);
 }
 
@@ -285,6 +285,17 @@ function ModelPicker({
   const [models, setModels] = useState<string[]>(def?.catalog ?? []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // If the currently selected provider got disconnected, fall back to the
+  // first connected one (and persist it) so settings never point at a
+  // provider the picker can't show.
+  useEffect(() => {
+    if (providers.length > 0 && !providers.some((p) => p.id === provider)) {
+      const first = providers[0];
+      onPick(first.id, first.catalog?.[0] ?? "");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [providers, provider]);
 
   useEffect(() => {
     if (!def) return;
@@ -367,7 +378,6 @@ function ModelPicker({
 function SettingsProviders({ t }: { t: Strings }): JSX.Element {
   const settings = useSettingsStore((s) => s.settings);
   const setProviderConnected = useSettingsStore((s) => s.setProviderConnected);
-  const [hasKeys, setHasKeys] = useState<Record<string, boolean>>({});
   const [keyInputOpen, setKeyInputOpen] = useState<string | null>(null);
   const [keyVal, setKeyVal] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
@@ -380,11 +390,38 @@ function SettingsProviders({ t }: { t: Strings }): JSX.Element {
   >({});
   const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus | null>(null);
 
+  const syncOllama = useSettingsStore((s) => s.syncOllama);
+
   function refreshOllama(): void {
     ipc
       .ollamaStatus()
-      .then(setOllamaStatus)
+      .then((st) => {
+        setOllamaStatus(st);
+        // Keep the connection flag mirroring the live daemon, so the model
+        // picker gains/loses ollama automatically.
+        void syncOllama();
+      })
       .catch(() => undefined);
+  }
+
+  async function connectCli(p: ProviderDef): Promise<void> {
+    setBusy(p.id);
+    try {
+      // "Connect" actually runs the CLI (--version) to prove it works.
+      const st =
+        p.id === "anthropic-cli"
+          ? await ipc.claudeCheck()
+          : await ipc.agentCheck(p.id);
+      if (!st.installed) {
+        window.alert(`${p.name}: CLI not found. Install it first.`);
+        return;
+      }
+      await setProviderConnected(p.flag, true);
+    } catch (e) {
+      window.alert(String(e));
+    } finally {
+      setBusy(null);
+    }
   }
 
   useEffect(() => {
@@ -406,28 +443,11 @@ function SettingsProviders({ t }: { t: Strings }): JSX.Element {
     refreshOllama();
   }, []);
 
-  useEffect(() => {
-    void (async () => {
-      const map: Record<string, boolean> = {};
-      for (const p of PROVIDERS) {
-        if (p.needsKey) {
-          try {
-            map[p.id] = await ipc.hasProviderKey(p.id);
-          } catch {
-            map[p.id] = false;
-          }
-        }
-      }
-      setHasKeys(map);
-    })();
-  }, []);
-
   async function saveKey(providerId: string): Promise<void> {
     if (!keyVal.trim()) return;
     setBusy(providerId);
     try {
       await ipc.setProviderKey(providerId, keyVal.trim());
-      setHasKeys((m) => ({ ...m, [providerId]: true }));
       const def = PROVIDERS.find((p) => p.id === providerId);
       if (def?.flag) await setProviderConnected(def.flag, true);
       setKeyInputOpen(null);
@@ -443,7 +463,6 @@ function SettingsProviders({ t }: { t: Strings }): JSX.Element {
     setBusy(providerId);
     try {
       await ipc.deleteProviderKey(providerId);
-      setHasKeys((m) => ({ ...m, [providerId]: false }));
       const def = PROVIDERS.find((p) => p.id === providerId);
       if (def?.flag) await setProviderConnected(def.flag, false);
     } catch (e) {
@@ -484,19 +503,10 @@ function SettingsProviders({ t }: { t: Strings }): JSX.Element {
       </div>
       <div className="col" style={{ gap: 10 }}>
         {PROVIDERS.map((p) => {
-          const connected =
-            p.id === "anthropic-cli"
-              ? cliStatus?.installed === true
-              : p.id === "gemini-cli" || p.id === "codex-cli"
-                ? agentStatus[p.id]?.installed === true
-                : p.id === "ollama"
-                ? ollamaStatus?.daemon_running === true &&
-                  ollamaStatus.models.length > 0
-                : p.needsKey
-                  ? hasKeys[p.id] === true
-                  : (settings?.providers[
-                      p.flag as keyof MemexSettings["providers"]
-                    ] ?? false);
+          // The connection flag is the single source of truth — it gates the
+          // model picker, so the card must show the same state. (Key saves,
+          // CLI connect and the ollama daemon sync all write this flag.)
+          const connected = settings?.providers[p.flag] === true;
           if (p.id === "ollama") {
             return (
               <div
@@ -657,7 +667,27 @@ function SettingsProviders({ t }: { t: Strings }): JSX.Element {
                 ) : null}
               </div>
               <div style={{ display: "flex", gap: 6 }}>
-                {p.kind === "cli" ? null : p.needsKey ? (
+                {p.kind === "cli" ? (
+                  connected ? (
+                    <button
+                      className="btn"
+                      onClick={() =>
+                        void setProviderConnected(p.flag, false)
+                      }
+                      disabled={busy === p.id}
+                    >
+                      {t.s_provider_disconnect}
+                    </button>
+                  ) : (
+                    <button
+                      className="btn btn-primary"
+                      onClick={() => void connectCli(p)}
+                      disabled={busy === p.id}
+                    >
+                      {t.s_provider_connect}
+                    </button>
+                  )
+                ) : p.needsKey ? (
                   connected ? (
                     <button
                       className="btn"

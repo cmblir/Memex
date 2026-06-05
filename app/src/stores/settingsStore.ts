@@ -15,6 +15,10 @@ interface SettingsState {
     key: keyof MemexSettings["providers"],
     on: boolean,
   ) => Promise<void>;
+  /** Mirror the live ollama daemon state into the connection flag, so a
+   * running daemon shows up in the model picker automatically and a stopped
+   * one disappears. */
+  syncOllama: () => Promise<void>;
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
@@ -25,6 +29,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     try {
       const s = await ipc.getSettings();
       set({ settings: s, loading: false });
+      void get().syncOllama();
     } catch {
       set({ loading: false });
     }
@@ -52,6 +57,20 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       await ipc.setSettings(next);
     } catch {
       /* swallow */
+    }
+  },
+
+  syncOllama: async () => {
+    const current = get().settings;
+    if (!current) return;
+    try {
+      const st = await ipc.ollamaStatus();
+      const on = st.daemon_running && st.models.length > 0;
+      if (current.providers.ollama !== on) {
+        await get().setProviderConnected("ollama", on);
+      }
+    } catch {
+      /* daemon unreachable — leave the flag as-is */
     }
   },
 }));

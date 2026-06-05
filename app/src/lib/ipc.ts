@@ -69,6 +69,9 @@ export interface ProvenanceRow {
 
 export interface MemexSettings {
   providers: {
+    anthropic_cli: boolean;
+    gemini_cli: boolean;
+    codex_cli: boolean;
     anthropic_api: boolean;
     openai_api: boolean;
     google_api: boolean;
