@@ -180,6 +180,7 @@ export default function PageQuery({ t }: { t: Strings }): JSX.Element {
             {turn.a ? (
               <AnswerGalaxy
                 t={t}
+                question={turn.q}
                 answer={turn.a}
                 stemMap={stemMap}
                 adjacency={adjacency}
@@ -199,12 +200,14 @@ export default function PageQuery({ t }: { t: Strings }): JSX.Element {
 // from the vault's adjacency. Click a star for an in-place preview.
 function AnswerGalaxy({
   t,
+  question,
   answer,
   stemMap,
   adjacency,
   onOpen,
 }: {
   t: Strings;
+  question: string;
   answer: string;
   stemMap: Map<string, string>;
   adjacency: ReturnType<typeof useVaultStore.getState>["adjacency"];
@@ -252,6 +255,7 @@ function AnswerGalaxy({
         selected={selected}
         onSelect={setSelected}
         ariaLabel={t.q_sources_used}
+        hubLabel={question}
       />
       {selected ? (
         <NodePreview

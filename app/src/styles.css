@@ -1854,3 +1854,12 @@ hr {
 .ingest-orb.idle .ingest-orb-ring {
   opacity: 0.35;
 }
+
+/* Question label at the galaxy hub. */
+.ingest-hub-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  fill: var(--ink-2);
+  text-anchor: middle;
+  pointer-events: none;
+}

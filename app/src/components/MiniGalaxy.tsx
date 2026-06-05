@@ -60,12 +60,16 @@ export default function MiniGalaxy({
   selected,
   onSelect,
   ariaLabel,
+  hubLabel,
 }: {
   nodes: GalaxyNode[];
   links: GalaxyLink[];
   selected: string | null;
   onSelect: (id: string | null) => void;
   ariaLabel: string;
+  /** Optional label drawn at the hub — e.g. the question the answer's
+   * cited pages orbit around. */
+  hubLabel?: string;
 }): JSX.Element | null {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const simRef = useRef<Simulation<SimNode, SimLink> | null>(null);
@@ -236,7 +240,12 @@ export default function MiniGalaxy({
           />
         );
       })}
-      <circle className="ingest-hub" cx={0} cy={0} r={6} />
+      <circle className="ingest-hub" cx={0} cy={0} r={hubLabel ? 8 : 6} />
+      {hubLabel ? (
+        <text className="ingest-hub-label" x={0} y={20}>
+          {hubLabel.length > 36 ? `${hubLabel.slice(0, 35)}…` : hubLabel}
+        </text>
+      ) : null}
       {files.map((n) => {
         const hovered = hoverId === n.id;
         const label = labelsRef.current.get(n.id) ?? n.id;
