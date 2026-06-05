@@ -16,7 +16,9 @@ together yourself:
   / technique / analysis`, YAML frontmatter schema, citation lint,
   provenance scan.
 - **An LLM client** — Claude Code CLI, Anthropic API, OpenAI, Google
-  Gemini, Ollama, OpenRouter. Pick a different model for ingest vs ask;
+  Gemini, Ollama, OpenRouter — plus the local `gemini` and `codex` CLIs
+  (no API key; they use your existing subscriptions, like the `claude`
+  CLI). Pick a different model for ingest vs ask;
   keys live in your OS keychain.
 - **A vault you own** — everything is plain markdown on disk. Open the
   folder in Finder, in Obsidian, in Vim — Memex never locks your data.
