@@ -1,14 +1,22 @@
 // Ask the wiki — shells the prompt to `claude --print` with the vault as
 // cwd. The CLI uses the user's existing Pro/Max subscription so we never
-// touch an API key.
+// touch an API key. Answers render as real markdown (clickable [[wikilinks]])
+// and every cited page appears in an interactive mini galaxy under the
+// answer — drag, hover, click for an in-place preview.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { JSX } from "react";
 import { Icon } from "../lib/icons";
 import type { Strings } from "../lib/i18n";
+import { useUIStore } from "../stores/uiStore";
 import { useVaultStore } from "../stores/vaultStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { complete } from "../lib/chat";
+import { flattenMarkdown, stem } from "../lib/graphData";
+import Viewer from "../components/Viewer";
+import MiniGalaxy from "../components/MiniGalaxy";
+import type { GalaxyLink, GalaxyNode } from "../components/MiniGalaxy";
+import NodePreview from "../components/NodePreview";
 
 interface ChatTurn {
   q: string;
@@ -22,13 +30,44 @@ look up answers from the wiki (\`wiki/\` if it exists) before reaching for
 \`raw/\` sources. Answer in the user's language. When you state a fact that
 comes from a vault file, cite it inline as [[page-stem]].`;
 
+// All [[wikilink]] targets in an answer, alias stripped, order kept, deduped.
+function extractWikilinks(text: string): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const m of text.matchAll(/\[\[([^\]\n]+?)\]\]/g)) {
+    const target = (m[1].split("|")[0] ?? "").trim();
+    const key = target.toLowerCase();
+    if (target && !seen.has(key)) {
+      seen.add(key);
+      out.push(target);
+    }
+  }
+  return out;
+}
+
 export default function PageQuery({ t }: { t: Strings }): JSX.Element {
   const currentVault = useVaultStore((s) => s.currentVault);
+  const fileTree = useVaultStore((s) => s.fileTree);
+  const adjacency = useVaultStore((s) => s.adjacency);
+  const setRoute = useUIStore((s) => s.setRoute);
   const settings = useSettingsStore((s) => s.settings);
   const [q, setQ] = useState("");
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [busy, setBusy] = useState(false);
   const endRef = useRef<HTMLDivElement | null>(null);
+
+  // stem (lowercased filename minus extension) → absolute path; mirrors the
+  // Rust link resolver, so answer citations resolve like real wikilinks.
+  const stemMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const p of flattenMarkdown(fileTree)) map.set(stem(p).toLowerCase(), p);
+    return map;
+  }, [fileTree]);
+
+  const openByStem = (target: string): void => {
+    const abs = stemMap.get(target.toLowerCase());
+    if (abs) setRoute(`page:${abs}`);
+  };
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -133,19 +172,96 @@ export default function PageQuery({ t }: { t: Strings }): JSX.Element {
               {turn.error ? (
                 <p style={{ color: "#dc2626" }}>{turn.error}</p>
               ) : turn.a ? (
-                turn.a.split("\n").map((line, j) => (
-                  <p key={j} style={{ margin: "4px 0" }}>
-                    {line}
-                  </p>
-                ))
+                <Viewer content={turn.a} onLinkClick={openByStem} />
               ) : (
                 <p className="muted">▌ thinking…</p>
               )}
             </div>
+            {turn.a ? (
+              <AnswerGalaxy
+                t={t}
+                answer={turn.a}
+                stemMap={stemMap}
+                adjacency={adjacency}
+                onOpen={(abs) => setRoute(`page:${abs}`)}
+              />
+            ) : null}
           </div>
         ))}
         <div ref={endRef} />
       </div>
+    </div>
+  );
+}
+
+// Interactive mini galaxy of the pages an answer cites. Nodes are the
+// resolved [[wikilinks]]; solid edges are the real links between those pages
+// from the vault's adjacency. Click a star for an in-place preview.
+function AnswerGalaxy({
+  t,
+  answer,
+  stemMap,
+  adjacency,
+  onOpen,
+}: {
+  t: Strings;
+  answer: string;
+  stemMap: Map<string, string>;
+  adjacency: ReturnType<typeof useVaultStore.getState>["adjacency"];
+  onOpen: (absPath: string) => void;
+}): JSX.Element | null {
+  const [selected, setSelected] = useState<string | null>(null);
+
+  const nodes = useMemo<GalaxyNode[]>(() => {
+    const out: GalaxyNode[] = [];
+    for (const target of extractWikilinks(answer).slice(0, 32)) {
+      const abs = stemMap.get(target.toLowerCase());
+      if (!abs) continue; // unresolved citation — nothing to open
+      out.push({
+        id: abs,
+        label: stem(abs),
+        bright: true,
+      });
+    }
+    return out;
+  }, [answer, stemMap]);
+
+  const links = useMemo<GalaxyLink[]>(() => {
+    if (!adjacency) return [];
+    const ids = new Set(nodes.map((n) => n.id));
+    const out: GalaxyLink[] = [];
+    for (const [src, targets] of Object.entries(adjacency.forward)) {
+      if (!ids.has(src)) continue;
+      for (const tgt of targets) {
+        if (ids.has(tgt)) out.push({ a: src, b: tgt });
+      }
+    }
+    return out;
+  }, [adjacency, nodes]);
+
+  if (nodes.length === 0) return null;
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      <div className="section-title" style={{ fontSize: 13, marginBottom: 4 }}>
+        {t.q_sources_used} · {nodes.length}
+      </div>
+      <MiniGalaxy
+        nodes={nodes}
+        links={links}
+        selected={selected}
+        onSelect={setSelected}
+        ariaLabel={t.q_sources_used}
+      />
+      {selected ? (
+        <NodePreview
+          t={t}
+          absPath={selected}
+          label={stem(selected)}
+          onOpen={() => onOpen(selected)}
+          onClose={() => setSelected(null)}
+        />
+      ) : null}
     </div>
   );
 }
