@@ -253,6 +253,8 @@ export function MemexMark({ size = 22 }: { size?: number }): JSX.Element {
 
 export type ProviderId =
   | "anthropic-cli"
+  | "gemini-cli"
+  | "codex-cli"
   | "anthropic-api"
   | "openai-api"
   | "google-api"
@@ -297,10 +299,18 @@ export function ProviderGlyph({
         </svg>
       );
     case "google-api":
+    case "gemini-cli":
       return (
         <svg {...stroke}>
           <path d="M12 4l4 8-4 8-4-8z" />
           <circle cx="12" cy="12" r="9" />
+        </svg>
+      );
+    case "codex-cli":
+      return (
+        <svg {...stroke}>
+          <rect x="3" y="5" width="18" height="14" rx="2" />
+          <path d="M7 9l3 3-3 3M12 15h5" />
         </svg>
       );
     case "ollama":

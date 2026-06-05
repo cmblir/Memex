@@ -3,6 +3,7 @@
 // the Tauri runtime.
 
 pub mod claude;
+pub mod cli_agent;
 mod commands;
 pub mod git_log;
 pub mod index;
@@ -36,6 +37,8 @@ pub fn run() {
             commands::claude_run_stream,
             commands::claude_cancel,
             commands::claude_check,
+            commands::agent_check,
+            commands::agent_run,
             commands::scan_provenance,
             commands::set_provider_key,
             commands::delete_provider_key,

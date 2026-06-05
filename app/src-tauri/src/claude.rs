@@ -349,13 +349,21 @@ pub fn cancel_all() {
 }
 
 fn locate() -> Option<String> {
-    // Honor MEMEX_CLAUDE_PATH override first, otherwise try `which claude`.
-    if let Ok(p) = std::env::var("MEMEX_CLAUDE_PATH") {
+    locate_bin("claude", "MEMEX_CLAUDE_PATH")
+}
+
+/// Find an agent CLI binary. GUI apps launched from Finder/Dock inherit
+/// launchd's minimal PATH (/usr/bin:/bin:...), so `which` misses user-level
+/// installs even when the CLI works fine in a terminal. Order: env override,
+/// `which`, well-known install dirs, then the user's login shell (which
+/// sources the profile that puts nvm / custom dirs on PATH).
+pub(crate) fn locate_bin(bin: &str, env_var: &str) -> Option<String> {
+    if let Ok(p) = std::env::var(env_var) {
         if !p.is_empty() {
             return Some(p);
         }
     }
-    if let Ok(which) = Command::new("/usr/bin/which").arg("claude").output() {
+    if let Ok(which) = Command::new("/usr/bin/which").arg(bin).output() {
         if which.status.success() {
             let s = String::from_utf8_lossy(&which.stdout).trim().to_string();
             if !s.is_empty() {
@@ -363,35 +371,29 @@ fn locate() -> Option<String> {
             }
         }
     }
-    // GUI apps launched from Finder/Dock inherit launchd's minimal PATH
-    // (/usr/bin:/bin:...), so `which` misses user-level installs even when
-    // the CLI works fine in a terminal. Probe the well-known install
-    // locations directly before giving up.
-    for candidate in candidate_paths() {
+    for candidate in candidate_paths(bin) {
         if Path::new(&candidate).is_file() {
             return Some(candidate);
         }
     }
-    // Last resort: ask the user's login shell, which sources the profile
-    // that puts custom install dirs on PATH.
-    login_shell_lookup()
+    login_shell_lookup(bin)
 }
 
-fn candidate_paths() -> Vec<String> {
+fn candidate_paths(bin: &str) -> Vec<String> {
     let home = std::env::var("HOME").unwrap_or_default();
     vec![
-        format!("{home}/.local/bin/claude"),    // native installer (default)
-        format!("{home}/.claude/local/claude"), // claude migrate-installer
-        "/opt/homebrew/bin/claude".to_string(), // Homebrew (Apple Silicon)
-        "/usr/local/bin/claude".to_string(),    // Homebrew (Intel) / npm -g
-        format!("{home}/.npm-global/bin/claude"), // npm custom prefix
+        format!("{home}/.local/bin/{bin}"),    // native installers
+        format!("{home}/.claude/local/{bin}"), // claude migrate-installer
+        format!("/opt/homebrew/bin/{bin}"),    // Homebrew (Apple Silicon)
+        format!("/usr/local/bin/{bin}"),       // Homebrew (Intel) / npm -g
+        format!("{home}/.npm-global/bin/{bin}"), // npm custom prefix
     ]
 }
 
-fn login_shell_lookup() -> Option<String> {
+fn login_shell_lookup(bin: &str) -> Option<String> {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
     let out = Command::new(shell)
-        .args(["-lc", "command -v claude"])
+        .args(["-lc", &format!("command -v {bin}")])
         .output()
         .ok()?;
     if !out.status.success() {
@@ -408,8 +410,10 @@ fn login_shell_lookup() -> Option<String> {
 
 // PATH for the spawned CLI. The app's own PATH is minimal when launched
 // from Finder, which would break claude's Bash tool (and any shell hooks)
-// during ingest. Prepend the CLI's bin dir plus the standard user dirs.
-fn augmented_path(cli_path: &str) -> String {
+// during ingest — and node-based CLIs (gemini) whose `env node` shebang
+// needs their own bin dir on PATH. Prepend the CLI's bin dir plus the
+// standard user dirs.
+pub(crate) fn augmented_path(cli_path: &str) -> String {
     let home = std::env::var("HOME").unwrap_or_default();
     let current = std::env::var("PATH").unwrap_or_default();
     let mut dirs: Vec<String> = Vec::new();
@@ -430,7 +434,7 @@ fn augmented_path(cli_path: &str) -> String {
     dirs.join(":")
 }
 
-fn wait_with_timeout(
+pub(crate) fn wait_with_timeout(
     mut child: std::process::Child,
     timeout: Duration,
 ) -> Result<std::process::Output, String> {
@@ -539,7 +543,7 @@ mod tests {
     #[test]
     fn candidate_paths_cover_known_install_locations() {
         let home = std::env::var("HOME").unwrap_or_default();
-        let paths = candidate_paths();
+        let paths = candidate_paths("claude");
         assert!(paths.contains(&format!("{home}/.local/bin/claude")));
         assert!(paths.contains(&"/opt/homebrew/bin/claude".to_string()));
     }

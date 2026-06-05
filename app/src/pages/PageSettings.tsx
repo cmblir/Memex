@@ -36,6 +36,24 @@ export const PROVIDERS: ProviderDef[] = [
     catalog: ["claude-sonnet-4-6", "claude-opus-4-7", "claude-haiku-4-5"],
   },
   {
+    id: "gemini-cli",
+    flag: null,
+    name: "Gemini CLI",
+    kind: "cli",
+    needsKey: false,
+    desc: "Use your Google subscription via the local `gemini` CLI. No API key needed.",
+    catalog: ["(default)", "gemini-2.5-pro", "gemini-2.5-flash"],
+  },
+  {
+    id: "codex-cli",
+    flag: null,
+    name: "Codex CLI",
+    kind: "cli",
+    needsKey: false,
+    desc: "Use your OpenAI subscription via the local `codex` CLI. No API key needed.",
+    catalog: ["(default)"],
+  },
+  {
     id: "anthropic-api",
     flag: "anthropic_api",
     name: "Anthropic API",
@@ -357,6 +375,9 @@ function SettingsProviders({ t }: { t: Strings }): JSX.Element {
     installed: boolean;
     version: string | null;
   } | null>(null);
+  const [agentStatus, setAgentStatus] = useState<
+    Record<string, { installed: boolean; version: string | null }>
+  >({});
   const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus | null>(null);
 
   function refreshOllama(): void {
@@ -371,6 +392,17 @@ function SettingsProviders({ t }: { t: Strings }): JSX.Element {
       .claudeCheck()
       .then(setCliStatus)
       .catch(() => undefined);
+    for (const id of ["gemini-cli", "codex-cli"]) {
+      ipc
+        .agentCheck(id)
+        .then((s) =>
+          setAgentStatus((m) => ({
+            ...m,
+            [id]: { installed: s.installed, version: s.version },
+          })),
+        )
+        .catch(() => undefined);
+    }
     refreshOllama();
   }, []);
 
@@ -455,7 +487,9 @@ function SettingsProviders({ t }: { t: Strings }): JSX.Element {
           const connected =
             p.id === "anthropic-cli"
               ? cliStatus?.installed === true
-              : p.id === "ollama"
+              : p.id === "gemini-cli" || p.id === "codex-cli"
+                ? agentStatus[p.id]?.installed === true
+                : p.id === "ollama"
                 ? ollamaStatus?.daemon_running === true &&
                   ollamaStatus.models.length > 0
                 : p.needsKey
@@ -573,6 +607,11 @@ function SettingsProviders({ t }: { t: Strings }): JSX.Element {
                       {cliStatus.version}
                     </span>
                   ) : null}
+                  {agentStatus[p.id]?.version ? (
+                    <span className="muted" style={{ fontSize: 12 }}>
+                      {agentStatus[p.id].version}
+                    </span>
+                  ) : null}
                 </div>
                 <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
                   {p.desc}
@@ -618,7 +657,7 @@ function SettingsProviders({ t }: { t: Strings }): JSX.Element {
                 ) : null}
               </div>
               <div style={{ display: "flex", gap: 6 }}>
-                {p.id === "anthropic-cli" ? null : p.needsKey ? (
+                {p.kind === "cli" ? null : p.needsKey ? (
                   connected ? (
                     <button
                       className="btn"

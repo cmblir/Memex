@@ -22,8 +22,12 @@ export async function complete(args: CompleteArgs): Promise<string> {
   const model =
     args.task === "query" ? settings.query_model : settings.ingest_model;
 
-  if (provider === "anthropic-cli") {
-    // CLI accepts a single prompt on stdin; flatten system+user.
+  const isCli =
+    provider === "anthropic-cli" ||
+    provider === "gemini-cli" ||
+    provider === "codex-cli";
+  if (isCli) {
+    // CLIs accept a single prompt; flatten system+user turns.
     const system = args.messages.find((m) => m.role === "system");
     const userTurns = args.messages
       .filter((m) => m.role !== "system")
@@ -32,9 +36,12 @@ export async function complete(args: CompleteArgs): Promise<string> {
       )
       .join("\n\n");
     const prompt = system ? `${system.content}\n\n${userTurns}` : userTurns;
-    const res = await ipc.claudeRun(prompt, args.cwd);
+    const res =
+      provider === "anthropic-cli"
+        ? await ipc.claudeRun(prompt, args.cwd)
+        : await ipc.agentRun(provider, model, prompt, args.cwd);
     if (res.status !== 0) {
-      throw new Error(res.stderr.trim() || `claude exit ${res.status}`);
+      throw new Error(res.stderr.trim() || `${provider} exit ${res.status}`);
     }
     return res.stdout.trim();
   }

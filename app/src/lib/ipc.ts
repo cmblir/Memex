@@ -158,6 +158,10 @@ export const ipc = {
     invoke<ClaudeResult>("claude_run_stream", { runId, prompt, cwd }),
   claudeCancel: (runId: string) =>
     invoke<boolean>("claude_cancel", { runId }),
+  agentCheck: (provider: string) =>
+    invoke<ClaudeStatus>("agent_check", { provider }),
+  agentRun: (provider: string, model: string, prompt: string, cwd: string) =>
+    invoke<ClaudeResult>("agent_run", { provider, model, prompt, cwd }),
   scanProvenance: (vaultPath: string) =>
     invoke<ProvenanceRow[]>("scan_provenance", { vaultPath }),
   setProviderKey: (providerId: string, key: string) =>

@@ -3,6 +3,7 @@
 // logic so the same modules remain unit-testable without Tauri runtime.
 
 use crate::claude::{self, CliResult, CliStatus};
+use crate::cli_agent;
 use crate::git_log::{self, Commit};
 use crate::index::{self, Adjacency};
 use crate::ollama::{self, OllamaStatus};
@@ -139,6 +140,33 @@ pub async fn claude_run_stream(
 #[tauri::command]
 pub fn claude_cancel(run_id: String) -> bool {
     claude::cancel(&run_id)
+}
+
+/// Install status of a third-party agent CLI ("gemini-cli" / "codex-cli").
+#[tauri::command]
+pub async fn agent_check(provider: String) -> CliStatus {
+    tauri::async_runtime::spawn_blocking(move || cli_agent::check(&provider))
+        .await
+        .unwrap_or(CliStatus {
+            installed: false,
+            version: None,
+            path: None,
+        })
+}
+
+/// Headless run of a third-party agent CLI with the vault as cwd.
+#[tauri::command]
+pub async fn agent_run(
+    provider: String,
+    model: String,
+    prompt: String,
+    cwd: String,
+) -> Result<CliResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        cli_agent::run_prompt(&provider, &model, &prompt, &cwd)
+    })
+    .await
+    .map_err(|e| format!("join failed: {e}"))?
 }
 
 #[tauri::command]

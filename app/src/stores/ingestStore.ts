@@ -11,6 +11,7 @@ import { create } from "zustand";
 import { listen } from "@tauri-apps/api/event";
 import { ipc } from "../lib/ipc";
 import type { Adjacency, ClaudeStreamPayload } from "../lib/ipc";
+import { complete } from "../lib/chat";
 import { useVaultStore } from "./vaultStore";
 
 export type IngestStage =
@@ -166,13 +167,13 @@ export const useIngestStore = create<IngestState>((set, get) => ({
         }
         out = res.stdout.trim();
       } else {
-        // HTTP providers have no tool stream; blocking call, stage UI only.
-        const res = await ipc.chatComplete({
-          provider_id: settings.ingest_provider,
-          model: settings.ingest_model,
+        // Other providers (gemini/codex CLIs, HTTP APIs, ollama) have no
+        // tool-event stream; blocking call, stage UI only.
+        out = await complete({
+          task: "ingest",
+          cwd: vault.path,
           messages: [{ role: "user", content: prompt }],
         });
-        out = res.content.trim();
       }
       set((st) => ({ log: `${st.log}\n\n${out}` }));
 
