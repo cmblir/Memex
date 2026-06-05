@@ -8,6 +8,7 @@ import type { Lang, Strings } from "../lib/i18n";
 import { useUIStore } from "../stores/uiStore";
 import { useVaultStore } from "../stores/vaultStore";
 import { useIngestStore } from "../stores/ingestStore";
+import { useLintStore } from "../stores/lintStore";
 import { ipc } from "../lib/ipc";
 import type { ClaudeStatus } from "../lib/ipc";
 import { formatTicker } from "../lib/time";
@@ -51,6 +52,7 @@ export default function Topbar({ t }: { t: Strings }): JSX.Element {
       </div>
       <div className="topbar-spacer" />
       <IngestChip t={t} />
+      <LintChip t={t} />
       <button className="pill" onClick={toggleCmd}>
         <Icon name="search" size={14} />
         <span>{t.ph_search}</span>
@@ -133,6 +135,44 @@ function IngestChip({ t }: { t: Strings }): JSX.Element | null {
           style={{ background: ok ? "#16a34a" : "#dc2626" }}
         ></span>
         <span>{ok ? t.ing_chip_done : t.ing_chip_error}</span>
+      </button>
+    );
+  }
+  return null;
+}
+
+// Same pattern as IngestChip, for lint runs: spinner while running, then a
+// done/failed chip until the user revisits the Provenance page.
+function LintChip({ t }: { t: Strings }): JSX.Element | null {
+  const stage = useLintStore((s) => s.stage);
+  const seen = useLintStore((s) => s.seen);
+  const setRoute = useUIStore((s) => s.setRoute);
+
+  if (stage === "running") {
+    return (
+      <button
+        className="pill"
+        onClick={() => setRoute("provenance")}
+        title={t.p_lint_running}
+      >
+        <span className="ingest-chip-spinner" />
+        <span>Lint</span>
+      </button>
+    );
+  }
+  if (!seen && (stage === "done" || stage === "error")) {
+    const ok = stage === "done";
+    return (
+      <button
+        className="pill"
+        onClick={() => setRoute("provenance")}
+        title={ok ? t.p_lint_done : t.p_lint_failed}
+      >
+        <span
+          className="dot"
+          style={{ background: ok ? "#16a34a" : "#dc2626" }}
+        ></span>
+        <span>{ok ? t.p_lint_done : t.p_lint_failed}</span>
       </button>
     );
   }

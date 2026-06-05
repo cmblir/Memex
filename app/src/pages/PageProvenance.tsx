@@ -9,19 +9,7 @@ import { ipc } from "../lib/ipc";
 import type { ProvenanceRow } from "../lib/ipc";
 import { useUIStore } from "../stores/uiStore";
 import { useVaultStore } from "../stores/vaultStore";
-import { complete } from "../lib/chat";
-
-const LINT_PROMPT = `Run the wiki lint checklist from CLAUDE.md against the current vault:
-
-Structure: frontmatter present, type field valid, status superseded → superseded_by exists, status disputed → ## Disputed section present.
-
-Citation: inline [^src-*] citations on factual claims, source_count matches actual citations, dangling [^src-*] references, definitions of src-* point to existing source-summary pages.
-
-Connection: orphan pages (no [[wikilinks]] pointing in), missing cross-references for entities/concepts mentioned but not linked, body mentions of concepts that don't have their own page.
-
-Freshness: status: active pages with last_updated > 30 days, source_count: 1 pages making general claims ("대체로", "일반적으로", "in general"), confidence: high pages with source_count < 2.
-
-Output as a Markdown report (sections Critical/Warning/Info) with concrete file paths and one-line fix suggestions. Do not modify files.`;
+import { useLintStore } from "../stores/lintStore";
 
 export default function PageProvenance({ t }: { t: Strings }): JSX.Element {
   const currentVault = useVaultStore((s) => s.currentVault);
@@ -30,8 +18,18 @@ export default function PageProvenance({ t }: { t: Strings }): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [threshold, setThreshold] = useState(0.7);
-  const [lintBusy, setLintBusy] = useState(false);
-  const [lintReport, setLintReport] = useState<string | null>(null);
+  // Lint runs live in lintStore so navigating away doesn't lose them.
+  const lintStage = useLintStore((s) => s.stage);
+  const lintReport = useLintStore((s) => s.report);
+  const runLint = useLintStore((s) => s.runLint);
+  const dismissLint = useLintStore((s) => s.dismiss);
+  const markLintSeen = useLintStore((s) => s.markSeen);
+  const lintBusy = lintStage === "running";
+
+  // Visiting this page acknowledges a finished lint (clears the Topbar chip).
+  useEffect(() => {
+    markLintSeen();
+  }, [lintStage, markLintSeen]);
 
   useEffect(() => {
     if (!currentVault) return;
@@ -43,24 +41,6 @@ export default function PageProvenance({ t }: { t: Strings }): JSX.Element {
       .catch((e: unknown) => setError(String(e)))
       .finally(() => setLoading(false));
   }, [currentVault]);
-
-  async function runLint(): Promise<void> {
-    if (!currentVault || lintBusy) return;
-    setLintBusy(true);
-    setLintReport("Running lint…");
-    try {
-      const out = await complete({
-        task: "query",
-        cwd: currentVault.path,
-        messages: [{ role: "user", content: LINT_PROMPT }],
-      });
-      setLintReport(out || "(no output)");
-    } catch (err) {
-      setLintReport(`ERROR: ${String(err)}`);
-    } finally {
-      setLintBusy(false);
-    }
-  }
 
   const totals = useMemo(() => {
     if (!rows) return { cited: 0, total: 0 };
@@ -87,7 +67,7 @@ export default function PageProvenance({ t }: { t: Strings }): JSX.Element {
         </div>
       </header>
 
-      {lintReport ? (
+      {lintBusy || lintReport ? (
         <section
           className="card"
           style={{
@@ -103,27 +83,39 @@ export default function PageProvenance({ t }: { t: Strings }): JSX.Element {
             <div className="section-title" style={{ fontSize: 14 }}>
               Lint report
             </div>
-            <button
-              type="button"
-              className="btn-ghost btn"
-              onClick={() => setLintReport(null)}
-            >
-              <Icon name="x" size={12} /> dismiss
-            </button>
+            {!lintBusy ? (
+              <button
+                type="button"
+                className="btn-ghost btn"
+                onClick={dismissLint}
+              >
+                <Icon name="x" size={12} /> dismiss
+              </button>
+            ) : null}
           </div>
-          <pre
-            style={{
-              whiteSpace: "pre-wrap",
-              wordBreak: "break-word",
-              fontFamily: "var(--font-mono)",
-              fontSize: 12.5,
-              margin: 0,
-              maxHeight: 400,
-              overflow: "auto",
-            }}
-          >
-            {lintReport}
-          </pre>
+          {lintBusy ? (
+            <div
+              className="row muted"
+              style={{ gap: 8, fontSize: 12.5, alignItems: "center" }}
+            >
+              <span className="ingest-chip-spinner" /> {t.p_lint_running}
+            </div>
+          ) : null}
+          {lintReport ? (
+            <pre
+              style={{
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+                fontFamily: "var(--font-mono)",
+                fontSize: 12.5,
+                margin: 0,
+                maxHeight: 400,
+                overflow: "auto",
+              }}
+            >
+              {lintReport}
+            </pre>
+          ) : null}
         </section>
       ) : null}
 

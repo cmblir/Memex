@@ -126,6 +126,10 @@ export interface Strings {
   p_threshold: string;
   p_low: string;
   p_ok: string;
+  p_lint_running: string;
+  p_lint_done: string;
+  p_lint_failed: string;
+  h_empty: string;
   s_title: string;
   s_account: string;
   s_workspace: string;
@@ -275,17 +279,22 @@ export const STRINGS: Record<Lang, Strings> = {
     gr_timelapse_pause: "Pause timelapse",
     h_title: "History",
     h_lede:
-      "Every ingest is a git commit. Inspect what changed, diff pages against earlier versions, or roll back.",
+      "Every ingest files a WHY report. Browse what each run created and changed, newest first.",
     h_view: "View diff",
     h_revert: "Revert",
     h_created: "created",
     h_modified: "modified",
+    h_empty:
+      "No ingest reports yet — run an Ingest and its report will appear here.",
     p_title: "Provenance",
     p_lede:
       "Each wiki claim carries a citation back to the raw source. Pages with low coverage are flagged so you can fix or remove them.",
     p_threshold: "Coverage threshold",
     p_low: "Below threshold",
     p_ok: "Healthy",
+    p_lint_running: "Lint is running — you can keep browsing; it continues in the background.",
+    p_lint_done: "Lint done",
+    p_lint_failed: "Lint failed",
     s_title: "Settings",
     s_account: "Account",
     s_workspace: "Workspace",
@@ -437,17 +446,22 @@ export const STRINGS: Record<Lang, Strings> = {
     gr_timelapse_pause: "타임랩스 일시정지",
     h_title: "히스토리",
     h_lede:
-      "모든 가져오기는 git 커밋입니다. 변경 내역을 보고, 이전 버전과 비교하고, 되돌릴 수 있습니다.",
+      "모든 가져오기는 WHY 보고서를 남깁니다. 각 실행이 무엇을 만들고 바꿨는지 최신순으로 봅니다.",
     h_view: "diff 보기",
     h_revert: "되돌리기",
     h_created: "생성",
     h_modified: "수정",
+    h_empty:
+      "아직 가져오기 기록이 없습니다 — Ingest를 실행하면 보고서가 여기에 쌓입니다.",
     p_title: "출처",
     p_lede:
       "위키의 각 주장은 원본 소스로 인용됩니다. 인용 비율이 낮은 페이지는 표시되어 수정하거나 제거할 수 있습니다.",
     p_threshold: "인용률 임계값",
     p_low: "임계값 미만",
     p_ok: "양호",
+    p_lint_running: "Lint 실행 중 — 다른 페이지로 이동해도 백그라운드에서 계속됩니다.",
+    p_lint_done: "Lint 완료",
+    p_lint_failed: "Lint 실패",
     s_title: "설정",
     s_account: "계정",
     s_workspace: "워크스페이스",
@@ -599,17 +613,22 @@ export const STRINGS: Record<Lang, Strings> = {
     gr_timelapse_pause: "タイムラプス一時停止",
     h_title: "履歴",
     h_lede:
-      "すべての取り込みは git コミット。差分を見たり、過去のバージョンと比較したり、戻したりできます。",
+      "すべての取り込みは WHY レポートを残します。各実行が何を作り、何を変えたかを新しい順に見られます。",
     h_view: "diff を見る",
     h_revert: "戻す",
     h_created: "作成",
     h_modified: "変更",
+    h_empty:
+      "まだ取り込み履歴がありません — Ingest を実行するとレポートがここに溜まります。",
     p_title: "出典",
     p_lede:
       "ウィキの各主張は原本に紐づきます。引用率の低いページにはフラグが立ち、修正や削除を促します。",
     p_threshold: "引用率しきい値",
     p_low: "しきい値未満",
     p_ok: "良好",
+    p_lint_running: "Lint 実行中 — 他のページに移動してもバックグラウンドで続行します。",
+    p_lint_done: "Lint 完了",
+    p_lint_failed: "Lint 失敗",
     s_title: "設定",
     s_account: "アカウント",
     s_workspace: "ワークスペース",
