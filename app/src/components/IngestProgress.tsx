@@ -41,14 +41,19 @@ export default function IngestProgress({ t }: { t: Strings }): JSX.Element {
   const writeCount = useIngestStore((s) => s.writeCount);
   const model = useIngestStore((s) => s.model);
   const startedAt = useIngestStore((s) => s.startedAt);
+  const finishedAt = useIngestStore((s) => s.finishedAt);
   const cancelIngest = useIngestStore((s) => s.cancelIngest);
+
+  const running =
+    stage === "writing-raw" || stage === "claude" || stage === "indexing";
 
   // 1 Hz elapsed ticker while the run is live.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
+    if (!running) return;
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
-  }, []);
+  }, [running]);
 
   // Auto-scroll the feed to the newest entry.
   const feedRef = useRef<HTMLDivElement | null>(null);
@@ -59,18 +64,37 @@ export default function IngestProgress({ t }: { t: Strings }): JSX.Element {
 
   const last = events.length > 0 ? events[events.length - 1] : null;
   const currentAction = last ? describe(last) : t.ing_live_warmup;
-  const elapsed = startedAt ? formatTicker(now - startedAt) : "0:00";
+  // Frozen at the final duration once the run ends — the panel stays up as
+  // the run's result view.
+  const elapsedMs = running
+    ? startedAt
+      ? now - startedAt
+      : 0
+    : startedAt && finishedAt
+      ? finishedAt - startedAt
+      : 0;
+  const elapsed = formatTicker(elapsedMs);
+  const title = running
+    ? t.ing_live_title
+    : stage === "done"
+      ? t.ing_success_title
+      : stage === "cancelled"
+        ? t.ing_cancelled
+        : t.ing_chip_error;
 
   return (
     <div className="ingest-live" role="status" aria-live="polite">
       <div className="ingest-live-hero">
-        <div className="ingest-orb" aria-hidden="true">
+        <div
+          className={"ingest-orb" + (running ? "" : " idle")}
+          aria-hidden="true"
+        >
           <span className="ingest-orb-ring r1" />
           <span className="ingest-orb-ring r2" />
           <span className="ingest-orb-core" />
         </div>
         <div className="ingest-live-headline">
-          <div className="ingest-live-title">{t.ing_live_title}</div>
+          <div className="ingest-live-title">{title}</div>
           <div className="ingest-live-action" title={currentAction}>
             {currentAction}
           </div>
@@ -79,13 +103,15 @@ export default function IngestProgress({ t }: { t: Strings }): JSX.Element {
             {elapsed}
           </div>
         </div>
-        <button
-          className="btn ingest-cancel"
-          onClick={cancelIngest}
-          disabled={stage !== "claude"}
-        >
-          <Icon name="x" size={13} /> {t.ing_cancel}
-        </button>
+        {running ? (
+          <button
+            className="btn ingest-cancel"
+            onClick={cancelIngest}
+            disabled={stage !== "claude"}
+          >
+            <Icon name="x" size={13} /> {t.ing_cancel}
+          </button>
+        ) : null}
       </div>
 
       <IngestMiniGraph t={t} />

@@ -1845,3 +1845,12 @@ hr {
 .ingest-preview-body .memex-viewer {
   font-size: 13px;
 }
+
+/* Finished run — the hero stays as the result header, orb at rest. */
+.ingest-orb.idle .ingest-orb-core,
+.ingest-orb.idle .ingest-orb-ring {
+  animation: none;
+}
+.ingest-orb.idle .ingest-orb-ring {
+  opacity: 0.35;
+}

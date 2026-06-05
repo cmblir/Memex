@@ -24,6 +24,7 @@ export default function PageIngest({ t }: { t: Strings }): JSX.Element {
   const [body, setBody] = useState("");
   const [dropError, setDropError] = useState<string | null>(null);
   const stage = useIngestStore((s) => s.stage);
+  const events = useIngestStore((s) => s.events);
   const log = useIngestStore((s) => s.log);
   const startedAt = useIngestStore((s) => s.startedAt);
   const finishedAt = useIngestStore((s) => s.finishedAt);
@@ -35,6 +36,10 @@ export default function PageIngest({ t }: { t: Strings }): JSX.Element {
 
   const running =
     stage === "writing-raw" || stage === "claude" || stage === "indexing";
+  // After the run ends the panel stays up as the result view (mini galaxy,
+  // feed, counters) until the user starts another ingest. Streamless runs
+  // (HTTP providers) have no events and fall back to the plain form+banner.
+  const showResults = running || events.length > 0;
 
   // Visiting this page acknowledges a finished run (clears the Topbar chip).
   useEffect(() => {
@@ -222,7 +227,31 @@ export default function PageIngest({ t }: { t: Strings }): JSX.Element {
         </div>
       ) : null}
 
-      {running ? (
+      {stage === "error" && showResults && log ? (
+        <div className="card" style={{ marginTop: 16, padding: 14 }}>
+          <div className="row" style={{ justifyContent: "flex-end", marginBottom: 8 }}>
+            <button className="btn btn-primary" onClick={resetForAnother}>
+              {t.ing_run_again}
+            </button>
+          </div>
+          <pre
+            style={{
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-word",
+              fontFamily: "var(--font-mono)",
+              fontSize: 12,
+              color: "#dc2626",
+              margin: 0,
+              maxHeight: 160,
+              overflow: "auto",
+            }}
+          >
+            {log}
+          </pre>
+        </div>
+      ) : null}
+
+      {showResults ? (
         <IngestProgress t={t} />
       ) : (
         <div
