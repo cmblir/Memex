@@ -22,6 +22,6 @@ _The vault is empty. Add a source to get started._
 
 ## Getting started
 
-1. Drop a document (article, paper, notes) into `raw/` (or paste into the dashboard Ingest view).
+1. Drop a document (article, paper, notes) into `raw/` (or paste into the Memex app Ingest view).
 2. Claude will create a source summary, extract entities and concepts, and wire up cross-references.
-3. Watch the pages appear in Obsidian and the dashboard in real time.
+3. Watch the pages appear in Obsidian and the Memex app in real time.

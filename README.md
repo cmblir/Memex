@@ -2,7 +2,7 @@
 
 <br />
 
-<img src="dashboard/claude_character.svg" width="100" alt="Memex character" />
+<img src="docs/memex-icon.png" width="100" alt="Memex icon" />
 
 <h1>Memex</h1>
 
@@ -49,17 +49,16 @@ Based on [Andrej Karpathy's LLM Wiki pattern](https://gist.github.com/karpathy/4
 
 ---
 
-## Three surfaces, one wiki
+## Two surfaces, one wiki
 
-Memex ships as a native desktop app today. Two other surfaces exist for users who want a browser UI or programmatic access from another Claude client.
+Memex ships as a native desktop app. A second surface exists for programmatic access from another Claude client.
 
 | Surface | What it is | When to use |
 |---|---|---|
 | **Memex desktop app** (`app/`) | Tauri 2 + React. Ships as a `.dmg` / `.exe`. Bundles its own vault, talks to any of 5 LLM providers (CLI + 4 HTTP APIs + Ollama). | **Default. Use this.** |
-| **Dashboard server** (`dashboard/`) | Python stdlib HTTP server + single-file HTML UI at `localhost:8090`. Shells out to `claude` CLI. | Multi-project switching, web access, scripted CI ingest. |
 | **MCP server** (`mcp-server/`) | 14 tools exposed via the Model Context Protocol. | Drive Memex from Claude Desktop / Claude Code / any MCP client. |
 
-All three share the same vault layout (`raw/ wiki/ daily/ ingest-reports/`) and never lock your data. Plain markdown on disk, always.
+Both share the same vault layout (`raw/ wiki/ daily/ ingest-reports/`) and never lock your data. Plain markdown on disk, always.
 
 ---
 
@@ -90,15 +89,13 @@ Mount/run, drag to Applications. On first launch Memex creates
 To use a different folder (e.g. an existing Obsidian vault), open
 Settings → Account → Change…
 
-### Dashboard / MCP (alternative surfaces)
+### MCP server (optional)
 
 Requires Python 3.10+ (stdlib only) and the [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code).
 
 ```bash
 git clone https://github.com/cmblir/memex.git
 cd memex
-python dashboard/server.py    # browser UI at localhost:8090
-# or
 bash mcp-server/install.sh    # MCP server for Claude Desktop/Code
 ```
 
@@ -271,46 +268,7 @@ At the start of an ingestion-heavy chat:
 
 </details>
 
-The MCP server and the Memex desktop app and the dashboard all share the same `wiki/` tree, so changes from any surface are immediately visible in the others.
-
----
-
-## The dashboard (alternate surface)
-
-A browser UI at `localhost:8090` that predates the desktop app. Still useful for:
-
-- **Multi-project** switching with header dropdown (Cmd+P focus)
-- **Wiki Ratio gauge** per project
-- **One-click revert** of any ingest commit
-- **WHY reports** rendered inline
-- **Bilingual UI** (EN / 한국어)
-- **Floating Claude character** chatbot for dashboard help
-
-The dashboard shells out to `claude` CLI for every operation.
-
-<details>
-<summary>Screenshots</summary>
-
-<table>
-<tr>
-<td width="50%"><img src="docs/screenshots/home.png" alt="Overview" /></td>
-<td width="50%"><img src="docs/screenshots/graph.png" alt="Knowledge graph" /></td>
-</tr>
-<tr>
-<td align="center"><sub><strong>Overview</strong></sub></td>
-<td align="center"><sub><strong>Graph</strong></sub></td>
-</tr>
-<tr>
-<td width="50%"><img src="docs/screenshots/ingest.png" alt="Ingest" /></td>
-<td width="50%"><img src="docs/screenshots/history.png" alt="History" /></td>
-</tr>
-<tr>
-<td align="center"><sub><strong>Ingest</strong></sub></td>
-<td align="center"><sub><strong>History</strong></sub></td>
-</tr>
-</table>
-
-</details>
+The MCP server and the Memex desktop app share the same `wiki/` tree, so changes from either surface are immediately visible in the other.
 
 ---
 
@@ -330,7 +288,7 @@ npm run tauri build     # release bundle in src-tauri/target/release/bundle/
 See [`app/README.md`](app/README.md) for the full development guide,
 architecture diagram, and IPC surface.
 
-### Dashboard / MCP
+### MCP server
 
 Already covered above — no compilation needed, just Python 3.10+.
 
@@ -338,7 +296,7 @@ Already covered above — no compilation needed, just Python 3.10+.
 
 ## Multi-project
 
-The dashboard supports running multiple independent wikis under one server. Each lives under `projects/<slug>/` with its own `wiki/ raw/ CLAUDE.md .settings.json`.
+The MCP server supports multiple independent wikis. Each lives under `projects/<slug>/` with its own `wiki/ raw/ CLAUDE.md .settings.json`.
 
 Templates scaffold `wiki/` subfolders at creation time:
 
@@ -363,77 +321,18 @@ app/                       Memex desktop app (Tauri 2 + React)
   PLAN.md / PROGRESS.md      Build history
 mcp-server/                MCP server (14 tools)
   memex_mcp.py
-  install.sh
-dashboard/                 Browser dashboard
-  server.py                  Zero-dep Python API
-  index.html                 Single-file UI
   project_registry.py        Multi-project resolver
-  provenance.py
-  index_strategy.py
+  install.sh
 CLAUDE.md                  Root common schema
-projects/                  Per-project vaults (dashboard / MCP)
+projects/                  Per-project vaults (MCP)
   <slug>/
     CLAUDE.md
     .settings.json
     wiki/  raw/  ingest-reports/
-projects.json              Active project + registry (dashboard / MCP)
+projects.json              Active project + registry (MCP)
 templates/                 Project templates
 raw/ wiki/ ...             Legacy single-project mode (still supported)
 ```
-
----
-
-## Dashboard API
-
-The dashboard server exposes 35+ endpoints, all of which accept a `?project=<slug>` query string (GET) or `"project"` JSON field (POST) for project scoping.
-
-<details>
-<summary><strong>Show all endpoints</strong></summary>
-
-**Project management**
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/projects` | List + active + legacy info |
-| GET | `/api/projects/active` | Current active project |
-| GET | `/api/templates` | Templates + recommended folders |
-| POST | `/api/projects/create` | New project |
-| POST | `/api/projects/switch` | Switch active project |
-| POST | `/api/projects/update` | Update model / title / description |
-| POST | `/api/projects/delete` | Soft delete → `projects/.trash/` |
-
-**Data / status**
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/status` | Claude CLI + Obsidian — raw facts only |
-| GET | `/api/wiki` | Full wiki data (project-scoped) |
-| GET | `/api/folders` | Folder tree |
-| GET | `/api/history` | Ingest commits |
-| GET | `/api/provenance` | Citation coverage |
-| GET | `/api/query-stats` | Wiki Ratio |
-| GET | `/api/raw/integrity` | raw/ tampering check |
-| GET | `/api/settings` | Model options + current |
-
-**Operations**
-
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/ingest` | New source → wiki pages |
-| POST | `/api/query` | Ask the wiki |
-| POST | `/api/lint` / `/api/lint/fix` | Health check |
-| POST | `/api/reflect` | Meta-analysis |
-| POST | `/api/write` | Writing companion |
-| POST | `/api/compare` | Two-page analysis |
-| POST | `/api/slides` | Marp export |
-| POST | `/api/search` | TF-IDF search |
-| POST | `/api/revert` | Revert an ingest |
-| POST | `/api/page` / `/update` / `/delete` | Page CRUD |
-| POST | `/api/folder` | Create folder |
-| POST | `/api/schema` | Update CLAUDE.md |
-| POST | `/api/assistant` | Dashboard helper chatbot |
-
-</details>
 
 ---
 
@@ -446,16 +345,7 @@ Stored at `~/Library/Application Support/dev.cmblir.memex/settings.json`
 per task, connection flags, language. **Never stores API keys** — those
 are in the OS keychain.
 
-### Dashboard
-
-```bash
-# Environment variables (optional)
-CLAUDE_TIMEOUT=1200  python dashboard/server.py
-CLAUDE_QUICK_TIMEOUT=30
-CLAUDE_TOOLS=Edit,Write,Read,Glob,Grep
-```
-
-Per-project settings live in `projects/<slug>/.settings.json` and
+Per-project settings (MCP) live in `projects/<slug>/.settings.json` and
 `projects/<slug>/CLAUDE.md`.
 
 ---
@@ -480,10 +370,6 @@ Per-project settings live in `projects/<slug>/.settings.json` and
 - `⌘S / Ctrl-S` — save (autosave fires 2s after last edit too)
 - `[[` in editor — wikilink autocomplete popup
 - Right-click in sidebar — new / rename / delete
-
-**Dashboard:**
-- `Cmd/Ctrl + P` — focus project selector
-- `Cmd/Ctrl + B` — toggle sidebar
 
 ---
 

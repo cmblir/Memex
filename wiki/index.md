@@ -15,7 +15,7 @@ All wiki pages, organized by type. Updated on every ingest.
 - [[overview]] — wiki scope and current state
 
 ## Sources
-_(none yet — drop a source into `raw/` or use the dashboard Ingest view)_
+_(none yet — drop a source into `raw/` or use the Memex app Ingest view)_
 
 ## Entities
 _(none yet)_

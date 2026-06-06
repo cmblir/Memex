@@ -8,11 +8,8 @@ Design notes
 ------------
 - Standalone: this file is the only entry point. It runs over stdio so it is
   registered with `claude mcp add memex -- python <abs path>/memex_mcp.py`.
-- Reuses `dashboard/project_registry.py` (no side effects) to resolve the
+- Uses the sibling `project_registry` module (no side effects) to resolve the
   project layout (legacy or multi-project under `projects/<slug>/`).
-- Does NOT import `dashboard/server.py` to avoid its top-level side effects
-  (git init, CLI PATH walking, `claude -p` subprocess machinery). Read/search
-  helpers are duplicated here in small form.
 - raw/ is immutable: `add_raw_source` refuses to overwrite. wiki/ is writable.
 """
 
@@ -28,12 +25,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-# ─── locate repo + bring dashboard/ onto sys.path ────────────────────────────
+# ─── locate repo + import the sibling project_registry module ────────────────
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DASHBOARD_DIR = REPO_ROOT / "dashboard"
-if str(DASHBOARD_DIR) not in sys.path:
-    sys.path.insert(0, str(DASHBOARD_DIR))
+_THIS_DIR = Path(__file__).resolve().parent
+if str(_THIS_DIR) not in sys.path:
+    sys.path.insert(0, str(_THIS_DIR))
 
 import project_registry  # type: ignore  # noqa: E402
 
@@ -63,7 +60,7 @@ mcp = FastMCP(
     ),
 )
 
-# ─── small helpers (duplicated from server.py to keep this server lean) ──────
+# ─── small helpers (kept local to keep this server lean) ─────────────────────
 
 FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 WIKILINK_RE = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]*)?\]\]")
@@ -73,7 +70,7 @@ WORD_RE = re.compile(r"[\w가-힣]+")
 def parse_fm(text: str) -> tuple[dict, str]:
     """Parse YAML-ish frontmatter, returning (meta, body).
 
-    Mirrors `dashboard/server.py:parse_fm`. Supports scalar and list values.
+    Supports scalar and list values.
     """
     meta: dict[str, Any] = {}
     m = FRONTMATTER_RE.match(text)

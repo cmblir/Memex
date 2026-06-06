@@ -2,7 +2,7 @@
 
 Expose this Memex vault as a Model Context Protocol (MCP) server so any MCP
 client (Claude Code, Claude Desktop, Cursor, etc.) can read, search, and
-maintain the wiki directly — no dashboard required.
+maintain the wiki directly, alongside the Memex desktop app.
 
 ## What it gives Claude
 
@@ -146,13 +146,13 @@ Do not modify raw/. When you create or update wiki pages, include inline
 [^src-*] citations and call git_commit when a coherent change is ready.
 ```
 
-## How it relates to the dashboard
+## How it relates to the desktop app
 
-The dashboard (`dashboard/server.py`) exists for a human-driven UI: a
-visual graph, ingest-via-form, project switcher, etc. The MCP server is
-the same vault exposed as agent-callable tools. They share the same
-`projects.json` and the same `wiki/` tree, so changes made via either
-surface are immediately visible in the other.
+The Memex desktop app (`app/`) is the human-driven UI: a visual graph,
+ingest-via-form, editor, etc. The MCP server is the same vault exposed as
+agent-callable tools. They share the same `projects.json` and the same
+`wiki/` tree, so changes made via either surface are immediately visible
+in the other.
 
 Both are read-safe to run concurrently. Writes are last-writer-wins on
 disk; if you are doing heavy concurrent ingests, drive one surface at a
@@ -167,5 +167,5 @@ time.
   `add_raw_source`, `read_page`, `search`, `update_page`, etc.
 - `git_commit` does not run git hooks differently from a normal commit.
   If you have pre-commit hooks that need a TTY, run those manually.
-- Frontmatter parsing is the same loose YAML-ish parser used by the
-  dashboard. Stick to the documented schema in `CLAUDE.md`.
+- Frontmatter parsing uses a loose YAML-ish parser. Stick to the
+  documented schema in `CLAUDE.md`.
