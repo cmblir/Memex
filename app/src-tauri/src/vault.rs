@@ -406,14 +406,15 @@ fn walk_dir(dir: &Path) -> std::io::Result<Vec<FileNode>> {
         let name = entry.file_name().to_string_lossy().into_owned();
         let path_str = path.to_string_lossy().into_owned();
         if path.is_dir() {
+            // Always emit directories, including empty ones, so the seeded
+            // scaffold folders (raw/, ingest-reports/) are visible and
+            // navigable before they contain any .md file — like Obsidian.
             let children = walk_dir(&path)?;
-            if !children.is_empty() {
-                nodes.push(FileNode::Directory {
-                    name,
-                    path: path_str,
-                    children,
-                });
-            }
+            nodes.push(FileNode::Directory {
+                name,
+                path: path_str,
+                children,
+            });
         } else if is_markdown(&path) {
             nodes.push(FileNode::File {
                 name,
@@ -422,6 +423,89 @@ fn walk_dir(dir: &Path) -> std::io::Result<Vec<FileNode>> {
         }
     }
     Ok(nodes)
+}
+
+/// Concatenate the vault's markdown (CLAUDE.md schema + wiki/ + raw/) into a
+/// single text blob, bounded to `max_bytes`. This lets non-tool providers
+/// (Anthropic/OpenAI/Google/Ollama HTTP APIs) answer questions and run lint
+/// against real vault content. Tool-capable providers (the Claude CLI) read
+/// files directly and never need this.
+pub fn read_vault_context(root: &str, max_bytes: usize) -> Result<String, String> {
+    let root_path = Path::new(root)
+        .canonicalize()
+        .map_err(|e| format!("canonicalize failed for {root}: {e}"))?;
+    if !root_path.is_dir() {
+        return Err(format!("not a directory: {root}"));
+    }
+
+    let mut files: Vec<std::path::PathBuf> = Vec::new();
+    let claude = root_path.join("CLAUDE.md");
+    if claude.is_file() {
+        files.push(claude);
+    }
+    for sub in ["wiki", "raw"] {
+        let dir = root_path.join(sub);
+        if dir.is_dir() {
+            collect_markdown(&dir, &mut files).map_err(|e| format!("walk failed: {e}"))?;
+        }
+    }
+    files.sort();
+    files.dedup();
+
+    let mut out = String::new();
+    let mut truncated = false;
+    for path in files {
+        if out.len() >= max_bytes {
+            truncated = true;
+            break;
+        }
+        let rel = path.strip_prefix(&root_path).unwrap_or(&path);
+        let body = match std::fs::read_to_string(&path) {
+            Ok(b) => b,
+            Err(_) => continue,
+        };
+        out.push_str(&format!("\n\n===== {} =====\n", rel.to_string_lossy()));
+        let remaining = max_bytes.saturating_sub(out.len());
+        if body.len() > remaining {
+            out.push_str(safe_truncate(&body, remaining));
+            out.push_str("\n…(truncated)…");
+            truncated = true;
+            break;
+        }
+        out.push_str(&body);
+    }
+    if truncated {
+        out.push_str("\n\n(Note: vault context was truncated to fit the size budget.)");
+    }
+    Ok(out)
+}
+
+fn collect_markdown(dir: &Path, out: &mut Vec<std::path::PathBuf>) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(dir)?.flatten() {
+        if is_hidden(&entry.file_name()) {
+            continue;
+        }
+        let path = entry.path();
+        if path.is_dir() {
+            collect_markdown(&path, out)?;
+        } else if is_markdown(&path) {
+            out.push(path);
+        }
+    }
+    Ok(())
+}
+
+/// Largest prefix of `s` no longer than `max` bytes that ends on a UTF-8 char
+/// boundary (so we never slice a multi-byte character in half).
+fn safe_truncate(s: &str, max: usize) -> &str {
+    if s.len() <= max {
+        return s;
+    }
+    let mut end = max;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
 }
 
 fn is_hidden(name: &std::ffi::OsStr) -> bool {
@@ -608,13 +692,37 @@ mod tests {
     }
 
     #[test]
-    fn list_files_skips_empty_dirs() {
+    fn list_files_shows_empty_dirs() {
         let dir = temp_vault("empty");
         fs::create_dir_all(dir.join("only-empty")).unwrap();
         fs::write(dir.join("a.md"), "x").unwrap();
 
         let nodes = list_files(dir.to_str().unwrap()).unwrap();
-        assert_eq!(nodes.len(), 1);
-        assert!(matches!(nodes[0], FileNode::File { .. }));
+        // Empty directories are now shown so seeded scaffold folders (raw/,
+        // ingest-reports/) are visible. Sorted by name: "a.md" then "only-empty".
+        assert_eq!(nodes.len(), 2);
+        assert!(matches!(&nodes[0], FileNode::File { name, .. } if name == "a.md"));
+        assert!(
+            matches!(&nodes[1], FileNode::Directory { name, children, .. } if name == "only-empty" && children.is_empty())
+        );
+    }
+
+    #[test]
+    fn read_vault_context_concatenates_wiki_and_truncates() {
+        let dir = temp_vault("ctx");
+        fs::create_dir_all(dir.join("wiki")).unwrap();
+        fs::write(dir.join("CLAUDE.md"), "schema rules").unwrap();
+        fs::write(dir.join("wiki/alpha.md"), "alpha body").unwrap();
+        fs::write(dir.join("wiki/beta.md"), "beta body").unwrap();
+
+        let full = read_vault_context(dir.to_str().unwrap(), 100_000).unwrap();
+        assert!(full.contains("schema rules"));
+        assert!(full.contains("alpha body"));
+        assert!(full.contains("beta body"));
+        assert!(full.contains("CLAUDE.md"));
+
+        // Tiny budget forces truncation without panicking on char boundaries.
+        let small = read_vault_context(dir.to_str().unwrap(), 20).unwrap();
+        assert!(small.contains("truncated"));
     }
 }

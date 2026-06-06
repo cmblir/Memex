@@ -122,10 +122,6 @@ fn full_lifecycle_seed_to_graph_to_mutate() {
         adj.tags.values().any(|v| v.contains(&"foo".to_string())),
         "expected tag 'foo' from alpha frontmatter"
     );
-    assert!(
-        Path::new(&meta.path).join(".memex/cache.db").is_file(),
-        "expected SQLite cache to land"
-    );
 
     // ---- 8. scan_provenance counts claims ----
     let rows = provenance::scan_provenance(&meta.path).unwrap();

@@ -104,8 +104,6 @@ export interface Strings {
   gr_timelapse_pause: string;
   h_title: string;
   h_lede: string;
-  h_view: string;
-  h_revert: string;
   h_created: string;
   h_modified: string;
   p_title: string;
@@ -249,9 +247,7 @@ export const STRINGS: Record<Lang, Strings> = {
     gr_timelapse_pause: "Pause timelapse",
     h_title: "History",
     h_lede:
-      "Every ingest is a git commit. Inspect what changed, diff pages against earlier versions, or roll back.",
-    h_view: "View diff",
-    h_revert: "Revert",
+      "Every ingest is a git commit. Inspect what changed across your vault's history.",
     h_created: "created",
     h_modified: "modified",
     p_title: "Provenance",
@@ -398,9 +394,7 @@ export const STRINGS: Record<Lang, Strings> = {
     gr_timelapse_pause: "타임랩스 일시정지",
     h_title: "히스토리",
     h_lede:
-      "모든 가져오기는 git 커밋입니다. 변경 내역을 보고, 이전 버전과 비교하고, 되돌릴 수 있습니다.",
-    h_view: "diff 보기",
-    h_revert: "되돌리기",
+      "모든 가져오기는 git 커밋입니다. vault 히스토리의 변경 내역을 확인하세요.",
     h_created: "생성",
     h_modified: "수정",
     p_title: "출처",
@@ -547,9 +541,7 @@ export const STRINGS: Record<Lang, Strings> = {
     gr_timelapse_pause: "タイムラプス一時停止",
     h_title: "履歴",
     h_lede:
-      "すべての取り込みは git コミット。差分を見たり、過去のバージョンと比較したり、戻したりできます。",
-    h_view: "diff を見る",
-    h_revert: "戻す",
+      "すべての取り込みは git コミット。vault の履歴で変更内容を確認できます。",
     h_created: "作成",
     h_modified: "変更",
     p_title: "出典",

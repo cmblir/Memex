@@ -38,6 +38,14 @@ pub fn read_file(path: String) -> Result<FileContent, String> {
     vault::read_file(&path)
 }
 
+/// Concatenate vault markdown (CLAUDE.md + wiki/ + raw/) up to `max_bytes`,
+/// so non-tool LLM providers can answer queries / run lint against real vault
+/// content (the Claude CLI reads files itself and does not use this).
+#[tauri::command]
+pub fn read_vault_context(root: String, max_bytes: usize) -> Result<String, String> {
+    vault::read_vault_context(&root, max_bytes)
+}
+
 #[tauri::command]
 pub fn write_file(path: String, content: String) -> Result<(), String> {
     vault::write_file(&path, &content)
@@ -174,6 +182,12 @@ pub fn ollama_install_url() -> &'static str {
 /// to take the user to the install page.
 #[tauri::command]
 pub fn open_external(url: String) -> Result<(), String> {
+    // For local file paths (not URLs), verify the target exists first so a
+    // wrong/missing path returns an error instead of silently doing nothing.
+    let is_url = url.contains("://") || url.starts_with("mailto:");
+    if !is_url && !std::path::Path::new(&url).exists() {
+        return Err(format!("file not found: {url}"));
+    }
     let cmd = if cfg!(target_os = "macos") {
         std::process::Command::new("open").arg(&url).spawn()
     } else if cfg!(target_os = "windows") {

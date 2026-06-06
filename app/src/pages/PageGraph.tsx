@@ -118,10 +118,8 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
       existingOnly: s.existingOnly,
       showOrphans: s.showOrphans,
     });
-    const graph: VaultGraph = buildGraph(adjacency, allowed, allFiles, {
+    const graph: VaultGraph = buildGraph(adjacency, allowed, {
       nodeSize: s.nodeSize,
-      starBright: theme.starBright,
-      starMid: theme.starMid,
       starDim: theme.starDim,
       edgeColor: theme.edge,
     });
@@ -303,6 +301,16 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
       window.clearInterval(fitTimer);
       window.clearTimeout(revealTimer);
       window.clearTimeout(revealSafety);
+      // Tear down any in-flight timelapse before the renderer/sim are killed.
+      // Otherwise its RAF loop survives the rebuild, runs against the freshly
+      // re-assigned sigmaRef/simRef, and calls setNodeAttribute() with node ids
+      // from the OLD graph — which throws NotFoundGraphError — and leaves the
+      // play button stuck "on".
+      if (tlRafRef.current != null) {
+        cancelAnimationFrame(tlRafRef.current);
+        tlRafRef.current = null;
+      }
+      setTlPlaying(false);
       container.removeEventListener("wheel", takeOver);
       container.removeEventListener("pointerdown", takeOver);
       for (const cv of canvases) {

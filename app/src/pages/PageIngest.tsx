@@ -10,7 +10,7 @@ import { ipc } from "../lib/ipc";
 import { useVaultStore } from "../stores/vaultStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useIngestStore } from "../stores/ingestStore";
-import { complete } from "../lib/chat";
+import { complete, providerSupportsVaultTools } from "../lib/chat";
 
 const INGEST_PROMPT = (slug: string, title: string) =>
   `New source has been added at \`raw/${slug}.md\` (title: "${title}"). Please ingest it into the wiki following the workflow in CLAUDE.md:
@@ -107,7 +107,10 @@ export default function PageIngest({ t }: { t: Strings }): JSX.Element {
     };
   }, []);
 
-  const canRun = !!currentVault && (title.trim() || body.trim());
+  const ingestProvider = settings?.ingest_provider ?? "anthropic-cli";
+  const ingestNeedsCli = !providerSupportsVaultTools(ingestProvider);
+  const canRun =
+    !!currentVault && !ingestNeedsCli && !!(title.trim() || body.trim());
 
   async function run(): Promise<void> {
     if (!canRun || !currentVault) return;
@@ -134,6 +137,14 @@ export default function PageIngest({ t }: { t: Strings }): JSX.Element {
       await ipc.writeFile(`${rawDir}/${slug}.md`, payload);
       await refreshTree();
 
+      // Snapshot wiki/ mtimes so we can verify the model actually wrote
+      // something, rather than reporting success for a no-op.
+      const wikiBefore = new Map(
+        (await ipc.fileMtimes(currentVault.path).catch(() => []))
+          .filter(([p]) => p.includes("/wiki/"))
+          .map(([p, m]) => [p, m] as const),
+      );
+
       setStage("claude");
       setLog((l) => `${l}\nInvoking model…`);
       const out = await complete({
@@ -148,8 +159,35 @@ export default function PageIngest({ t }: { t: Strings }): JSX.Element {
       await refreshTree();
       await refreshLinkGraph();
 
-      const today = new Date().toISOString().slice(0, 10);
-      setReportPath(`${currentVault.path}/ingest-reports/${today}-${slug}.md`);
+      // Verify the wiki changed: a new wiki file appeared, or an existing one
+      // was modified. If nothing changed, the model replied but did not ingest.
+      const afterMtimes = await ipc.fileMtimes(currentVault.path).catch(() => []);
+      const wikiChanged = afterMtimes.some(
+        ([p, m]) =>
+          p.includes("/wiki/") &&
+          (!wikiBefore.has(p) || m > (wikiBefore.get(p) ?? 0)),
+      );
+      if (!wikiChanged) {
+        setFinishedAt(Date.now());
+        setStage("error");
+        setLog(
+          (l) =>
+            `${l}\n\nWARNING: the model finished but no wiki pages were created or updated. ` +
+            `The source was saved to raw/${slug}.md, but nothing was ingested into the wiki. ` +
+            `Check the model output above, or try the Claude Code (CLI) provider.`,
+        );
+        return;
+      }
+
+      // Open the report the model actually wrote (newest matching file),
+      // instead of guessing the filename from today's date.
+      const report = afterMtimes
+        .filter(
+          ([p]) =>
+            p.includes("/ingest-reports/") && p.endsWith(`-${slug}.md`),
+        )
+        .sort((a, b) => b[1] - a[1])[0];
+      setReportPath(report ? report[0] : null);
       setFinishedAt(Date.now());
       setStage("done");
     } catch (err) {
@@ -206,6 +244,25 @@ export default function PageIngest({ t }: { t: Strings }): JSX.Element {
       {settings ? (
         <div className="muted" style={{ fontSize: 12, marginTop: 12 }}>
           via {settings.ingest_provider} · {settings.ingest_model}
+        </div>
+      ) : null}
+
+      {ingestNeedsCli ? (
+        <div
+          className="card"
+          style={{
+            marginTop: 12,
+            padding: "10px 14px",
+            border: "1px solid #d97706",
+            background: "color-mix(in srgb, #d97706 8%, var(--bg))",
+            fontSize: 13,
+          }}
+          role="alert"
+        >
+          Ingest needs to write pages into your vault, which only{" "}
+          <strong>Claude Code (CLI)</strong> can do. The selected provider (
+          {ingestProvider}) has no file access. Switch the Ingest provider to
+          Claude Code (CLI) in Settings → Model.
         </div>
       ) : null}
 

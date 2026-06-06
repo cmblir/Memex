@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useState } from "react";
 import type { JSX } from "react";
 import Sidebar from "./components/Sidebar";
 import Topbar from "./components/Topbar";
@@ -17,6 +17,10 @@ import { useUIStore } from "./stores/uiStore";
 import { useSettingsStore } from "./stores/settingsStore";
 import { getLastVaultPath, useVaultStore } from "./stores/vaultStore";
 import { ipc } from "./lib/ipc";
+
+// Matches the seeded accent in uiStore. While it's the active value we let the
+// [data-theme] stylesheet own --accent instead of overriding it inline.
+const DEFAULT_ACCENT = "#181715";
 
 export default function App(): JSX.Element {
   const route = useUIStore((s) => s.route);
@@ -37,10 +41,18 @@ export default function App(): JSX.Element {
     void loadSettings();
   }, [loadSettings]);
 
-  const sysDark = useMemo(
+  // Track the OS colour scheme live so the "System" appearance option follows
+  // light/dark changes at runtime (not just on app launch).
+  const [sysDark, setSysDark] = useState(
     () => window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false,
-    [],
   );
+  useEffect(() => {
+    const mq = window.matchMedia?.("(prefers-color-scheme: dark)");
+    if (!mq) return;
+    const onChange = (e: MediaQueryListEvent): void => setSysDark(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
   const effectiveTheme =
     theme === "system" ? (sysDark ? "dark" : "light") : theme;
 
@@ -66,7 +78,16 @@ export default function App(): JSX.Element {
   }, [density]);
 
   useEffect(() => {
-    document.documentElement.style.setProperty("--accent", accent);
+    const el = document.documentElement;
+    // Only override the theme's --accent when the user actually picked a custom
+    // accent. Otherwise the seeded default (#181715) would clobber the dark
+    // theme's --accent and render accent-on-accent UI (e.g. the timelapse play
+    // button) invisible.
+    if (accent && accent.toLowerCase() !== DEFAULT_ACCENT) {
+      el.style.setProperty("--accent", accent);
+    } else {
+      el.style.removeProperty("--accent");
+    }
   }, [accent]);
 
   useEffect(() => {

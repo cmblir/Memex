@@ -164,10 +164,8 @@ export function computeAllowed(
 
 export interface BuildGraphOpts {
   nodeSize: number; // GraphSettings.nodeSize multiplier
-  // Star brightness tiers — hubs are bright stars, leaves mid, orphans/ghosts
-  // dim, giving the galaxy depth.
-  starBright: string;
-  starMid: string;
+  // Fallback dim colour for nodes outside any sized community. Community hues
+  // (colorByCommunity) override it for the rest.
   starDim: string;
   edgeColor: string; // rgba w/ alpha — sigma honors it
 }
@@ -195,7 +193,6 @@ export interface GraphNodeAttrs {
   y: number;
   deg: number;
   size: number;
-  unresolved: 0 | 1;
   color: string;
   hidden?: boolean;
 }
@@ -208,12 +205,9 @@ export type VaultGraph = Graph<GraphNodeAttrs, GraphEdgeAttrs>;
 export function buildGraph(
   adjacency: Adjacency,
   allowed: Set<string>,
-  allFiles: string[],
   o: BuildGraphOpts,
 ): VaultGraph {
   const g: VaultGraph = new Graph({ multi: false, type: "undirected" });
-  const resolved = new Set<string>(allFiles);
-  for (const p of Object.keys(adjacency.forward)) resolved.add(p);
 
   const ensure = (id: string): void => {
     if (g.hasNode(id)) return;
@@ -225,7 +219,6 @@ export function buildGraph(
       y,
       deg: 0,
       size: 2, // real size + colour set once degree is known
-      unresolved: resolved.has(id) ? 0 : 1,
       color: o.starDim,
     });
   };

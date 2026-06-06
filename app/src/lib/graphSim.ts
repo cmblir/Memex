@@ -151,7 +151,14 @@ export function createSim(
       chargeF.strength(() => -next.repelForce * REPEL_SCALE);
       xF.strength(centerOf(next));
       yF.strength(centerOf(next));
-      sim.alpha(0.3).alphaTarget(0).restart();
+      if (tlActive) {
+        // A timelapse keeps the sim hot (alphaTarget 0.1); don't reset the
+        // target to 0 or the galaxy cools between reveal batches. Just nudge
+        // alpha so the new force values take effect.
+        sim.alpha(Math.max(sim.alpha(), 0.3)).restart();
+      } else {
+        sim.alpha(0.3).alphaTarget(0).restart();
+      }
     },
     timelapseReset() {
       activeIds.clear();

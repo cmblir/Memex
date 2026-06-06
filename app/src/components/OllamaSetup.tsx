@@ -77,7 +77,9 @@ export default function OllamaSetup({
   );
 
   async function pullModel(name: string): Promise<void> {
-    if (!name.trim() || pull) return;
+    // Allow a new pull once the previous one has finished (done), but not while
+    // one is actively in progress. (Matches the button's disabled condition.)
+    if (!name.trim() || (pull && !pull.done)) return;
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     setPull({
@@ -88,6 +90,7 @@ export default function OllamaSetup({
       done: false,
       error: null,
     });
+    let pullError = false;
     try {
       const resp = await fetch(`${status.endpoint}/api/pull`, {
         method: "POST",
@@ -117,6 +120,8 @@ export default function OllamaSetup({
               error?: string;
             };
             if (ev.error) {
+              // Ollama streams mid-pull errors as {"error":...} over HTTP 200.
+              pullError = true;
               setPull((p) =>
                 p ? { ...p, error: ev.error ?? "pull error", done: true } : p,
               );
@@ -136,7 +141,10 @@ export default function OllamaSetup({
             /* malformed line; skip */
           }
         }
+        if (pullError) break;
       }
+      // A failed pull added no model — do NOT mark ollama connected.
+      if (pullError) return;
       setPull((p) => (p ? { ...p, done: true } : p));
       // Refresh status so the new model shows up in the list, and turn the
       // ollama flag on so settings picks it up immediately.
@@ -288,7 +296,7 @@ export default function OllamaSetup({
                   key={p.id}
                   className="card-flat"
                   onClick={() => void pullModel(p.id)}
-                  disabled={installed || busy || pull !== null}
+                  disabled={installed || busy || (pull !== null && !pull.done)}
                   style={{
                     padding: "8px 10px",
                     textAlign: "left",

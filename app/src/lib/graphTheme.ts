@@ -8,10 +8,7 @@ import NodeGlowProgram from "./graphNodeGlow";
 export interface GraphTheme {
   bg: string;
   node: string;
-  nodeUnresolved: string;
-  // Star brightness tiers for the galaxy: bright hubs → dim field stars.
-  starBright: string;
-  starMid: string;
+  // Fallback dim star colour for nodes outside a sized community.
   starDim: string;
   // Galaxy radius tiers: warm glowing core → blue-white arms → dim halo.
   gxCore: string;
@@ -53,9 +50,6 @@ export function readTheme(): GraphTheme {
     bg: cs.getPropertyValue("--bg").trim() || (dark ? "#0f1115" : "#fafaf9"),
     ink: cs.getPropertyValue("--ink").trim() || (dark ? "#e6e8eb" : "#111418"),
     node: dark ? "#c8c8c8" : "#3a3f47",
-    nodeUnresolved: dark ? "#6e7079" : "#9aa0a8",
-    starBright: dark ? "#eef1f6" : "#1b1f27",
-    starMid: dark ? "#9aa0ab" : "#4c525c",
     starDim: dark ? "#565b64" : "#9aa0a8",
     gxCore: dark ? "#ffe9c4" : "#7a5a1f",
     gxArm: dark ? "#cdd7f0" : "#3a4664",

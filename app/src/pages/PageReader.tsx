@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import type { JSX } from "react";
 import { Icon } from "../lib/icons";
 import type { Strings } from "../lib/i18n";
+import { ipc } from "../lib/ipc";
 import { SAMPLE } from "../lib/sample";
 import { useUIStore } from "../stores/uiStore";
 import { useVaultStore } from "../stores/vaultStore";
@@ -120,39 +121,59 @@ function VaultPage({ path }: { path: string; t: Strings }): JSX.Element {
   const activeFile = useVaultStore((s) => s.activeFile);
   const saveFile = useVaultStore((s) => s.saveFile);
   const resolveWikilink = useVaultStore((s) => s.resolveWikilink);
+  const refreshTree = useVaultStore((s) => s.refreshTree);
   const error = useVaultStore((s) => s.error);
   const setRoute = useUIStore((s) => s.setRoute);
   const [mode, setMode] = useState<"preview" | "source" | "split">("split");
   const [draft, setDraft] = useState("");
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Latest unsaved draft + dirty flag so the unmount cleanup can flush a
+  // pending debounced save instead of dropping it on navigation.
+  const draftRef = useRef("");
+  const dirtyRef = useRef(false);
 
   useEffect(() => {
     void openFile(path);
   }, [path, openFile]);
 
   useEffect(() => {
-    if (activeFile?.path === path) setDraft(activeFile.content);
+    if (activeFile?.path === path) {
+      setDraft(activeFile.content);
+      draftRef.current = activeFile.content;
+      dirtyRef.current = false;
+    }
   }, [activeFile?.path, activeFile?.content, path]);
 
   useEffect(
     () => () => {
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+        // Flush the pending edit so edits made within the debounce window are
+        // never silently lost when the user navigates away.
+        if (dirtyRef.current) void saveFile(path, draftRef.current);
+      }
     },
-    [],
+    [path, saveFile],
   );
 
   function scheduleSave(c: string): void {
+    draftRef.current = c;
+    dirtyRef.current = true;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
       void saveFile(path, c);
+      dirtyRef.current = false;
     }, AUTOSAVE_MS);
   }
   function flushSave(c: string): void {
+    draftRef.current = c;
     if (saveTimerRef.current) {
       clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
     }
     void saveFile(path, c);
+    dirtyRef.current = false;
   }
 
   if (!activeFile || activeFile.path !== path) {
@@ -237,7 +258,24 @@ function VaultPage({ path }: { path: string; t: Strings }): JSX.Element {
               content={draft}
               onLinkClick={(target) => {
                 const resolved = resolveWikilink(target);
-                if (resolved) setRoute(`page:${resolved}`);
+                if (resolved) {
+                  setRoute(`page:${resolved}`);
+                  return;
+                }
+                // Unresolved link: create the note next to the current file
+                // and open it (Obsidian-style create-on-click), instead of a
+                // silent no-op.
+                void (async () => {
+                  const dir = path.replace(/[\\/][^\\/]+$/, "");
+                  const name = `${target.replace(/[\\/]/g, "-")}.md`;
+                  try {
+                    const created = await ipc.createFile(dir, name);
+                    await refreshTree();
+                    setRoute(`page:${created}`);
+                  } catch {
+                    /* already exists or invalid name — ignore */
+                  }
+                })();
               }}
             />
           </div>

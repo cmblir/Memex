@@ -56,37 +56,39 @@ fn count_claims(text: &str) -> (u32, u32) {
     let mut total = 0u32;
     let mut cited = 0u32;
     let mut in_frontmatter = false;
+    let mut frontmatter_done = false;
     let mut in_code = false;
-    let mut frontmatter_seen_open = false;
+    let mut seen_content = false;
     for line in text.lines() {
         let trimmed = line.trim();
-        if !frontmatter_seen_open && trimmed == "---" {
-            frontmatter_seen_open = true;
+        // YAML frontmatter opens ONLY when `---` is the first non-empty line of
+        // the file. A `---` later in the body is a Markdown thematic break, not
+        // frontmatter, and must not swallow the claims that follow it.
+        if !seen_content && !frontmatter_done && !in_frontmatter && trimmed == "---" {
             in_frontmatter = true;
+            seen_content = true;
             continue;
         }
         if in_frontmatter {
             if trimmed == "---" {
                 in_frontmatter = false;
+                frontmatter_done = true;
             }
             continue;
         }
         if trimmed.starts_with("```") {
             in_code = !in_code;
+            seen_content = true;
             continue;
         }
         if in_code {
             continue;
         }
-        if trimmed.is_empty()
-            || trimmed.starts_with('#')
-            || trimmed.starts_with('>')
-            || trimmed.starts_with("- ")
-            || trimmed.starts_with("* ")
-            || trimmed.starts_with("| ")
-            || trimmed.starts_with("---")
-            || trimmed.starts_with("![")
-        {
+        if trimmed.is_empty() {
+            continue;
+        }
+        seen_content = true;
+        if is_non_claim_line(trimmed) {
             continue;
         }
         total += 1;
@@ -95,6 +97,35 @@ fn count_claims(text: &str) -> (u32, u32) {
         }
     }
     (cited, total)
+}
+
+// Lines that carry markdown structure rather than a prose claim: headings,
+// blockquotes, unordered bullets (-, *, +), ordered list items (1. / 1)),
+// thematic breaks (--- / ***), images, and table rows/separators (|...|).
+fn is_non_claim_line(trimmed: &str) -> bool {
+    trimmed.starts_with('#')
+        || trimmed.starts_with('>')
+        || trimmed.starts_with("- ")
+        || trimmed.starts_with("* ")
+        || trimmed.starts_with("+ ")
+        || trimmed.starts_with("---")
+        || trimmed.starts_with("***")
+        || trimmed.starts_with("![")
+        || is_ordered_list_item(trimmed)
+        || is_table_row(trimmed)
+}
+
+fn is_ordered_list_item(s: &str) -> bool {
+    let digits = s.chars().take_while(|c| c.is_ascii_digit()).count();
+    if digits == 0 {
+        return false;
+    }
+    let rest = &s[digits..];
+    rest.starts_with(". ") || rest.starts_with(") ")
+}
+
+fn is_table_row(s: &str) -> bool {
+    s.len() > 1 && s.starts_with('|') && s.ends_with('|')
 }
 
 fn collect_markdown(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
@@ -147,6 +178,22 @@ mod tests {
         let text = "Body with cite tag.<cite n=\"1\"/>\n";
         let (cited, total) = count_claims(text);
         assert_eq!(cited, 1);
+        assert_eq!(total, 1);
+    }
+
+    #[test]
+    fn body_thematic_break_is_not_frontmatter() {
+        // A `---` mid-body is a horizontal rule; claims after it must still count.
+        let text = "Claim one.\n\n---\n\nClaim two[^src-a].\n";
+        let (cited, total) = count_claims(text);
+        assert_eq!(total, 2);
+        assert_eq!(cited, 1);
+    }
+
+    #[test]
+    fn skips_ordered_lists_bullets_and_tables() {
+        let text = "1. step one\n+ a bullet\n|a|b|\n|---|---|\n| c | d |\nReal claim.\n";
+        let (_, total) = count_claims(text);
         assert_eq!(total, 1);
     }
 }

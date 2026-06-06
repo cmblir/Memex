@@ -61,13 +61,9 @@ export const useUIStore = create<UIState>()(
       density: "comfortable",
       accent: "#181715",
       showCitations: true,
-      expandedFolders: {
-        sources: false,
-        entities: true,
-        concepts: true,
-        techniques: false,
-        analyses: true,
-      },
+      // Keyed by absolute folder path; empty by default (all collapsed). The
+      // old slug-keyed seed never matched real paths and was inert.
+      expandedFolders: {},
 
       setRoute: (route) => set({ route }),
       setSidebarCollapsed: (v) => set({ sidebarCollapsed: v }),
@@ -83,10 +79,12 @@ export const useUIStore = create<UIState>()(
         set({
           expandedFolders: {
             ...get().expandedFolders,
-            [id]: !(get().expandedFolders[id] ?? true),
+            // Default must match DirectoryRow's read default (collapsed/false),
+            // so the first click reliably expands a not-yet-seen folder.
+            [id]: !(get().expandedFolders[id] ?? false),
           },
         }),
     }),
-    { name: "memex-ui", version: 2 },
+    { name: "memex-ui", version: 3 },
   ),
 );

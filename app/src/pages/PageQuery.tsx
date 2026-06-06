@@ -47,10 +47,15 @@ export default function PageQuery({ t }: { t: Strings }): JSX.Element {
         cwd: currentVault.path,
         messages: [
           { role: "system", content: SYSTEM_PREAMBLE },
-          ...turns.flatMap((p) => [
-            { role: "user" as const, content: p.q },
-            { role: "assistant" as const, content: p.a },
-          ]),
+          // Skip turns that errored or have no answer — replaying an empty
+          // assistant message makes providers (e.g. Anthropic) reject the
+          // request with a 400 on the next question.
+          ...turns
+            .filter((p) => p.a && !p.error)
+            .flatMap((p) => [
+              { role: "user" as const, content: p.q },
+              { role: "assistant" as const, content: p.a },
+            ]),
           { role: "user", content: question },
         ],
       });
