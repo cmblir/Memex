@@ -28,3 +28,6 @@ docs/.venv/
 
 # Local dev scratch
 commits.tsv
+
+# Playwright MCP scratch output
+.playwright-mcp/

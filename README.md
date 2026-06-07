@@ -33,7 +33,9 @@ Your knowledge compounds — in plain markdown you own.
 
 <br />
 
-<img src="docs/demo.gif" width="100%" alt="Memex demo" />
+<img src="docs/screenshots/hero-graph.png" width="100%" alt="Memex knowledge graph — thousands of cross-linked notes clustered into colored communities" />
+
+<sub><em>A Memex vault visualized as a knowledge galaxy — every note a star, every <code>[[wikilink]]</code> an edge, colored by community.</em></sub>
 
 </div>
 
@@ -102,6 +104,33 @@ git clone https://github.com/cmblir/memex.git
 cd memex
 bash mcp-server/install.sh    # MCP server for Claude Desktop/Code
 ```
+
+---
+
+## Screenshots
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/overview.png" alt="Overview — vault stats, jump-back cards, recent git activity" /></td>
+<td width="50%"><img src="docs/screenshots/graph.png" alt="Graph — sigma.js + d3-force link graph, colored by community" /></td>
+</tr>
+<tr>
+<td align="center"><sub><strong>Overview</strong> — stats, jump-back, recent activity</sub></td>
+<td align="center"><sub><strong>Graph</strong> — community-colored link graph</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/screenshots/reader.png" alt="Reader — CodeMirror source, live markdown preview, backlinks" /></td>
+<td width="50%"><img src="docs/screenshots/settings.png" alt="Settings — per-task provider + model pickers" /></td>
+</tr>
+<tr>
+<td align="center"><sub><strong>Reader</strong> — source / split / preview + backlinks</sub></td>
+<td align="center"><sub><strong>Settings</strong> — separate Query / Ingest models</sub></td>
+</tr>
+</table>
+
+> Captured from the app running on a seeded sample vault. A fresh install ships
+> ~50 interconnected starter notes (an LLM knowledge map), so the Graph looks
+> like this on day one — delete them anytime.
 
 ---
 

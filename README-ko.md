@@ -33,7 +33,9 @@
 
 <br />
 
-<img src="docs/demo.gif" width="100%" alt="Memex 데모" />
+<img src="docs/screenshots/hero-graph.png" width="100%" alt="Memex 지식 그래프 — 커뮤니티별로 색칠된 수천 개의 상호 연결 노트" />
+
+<sub><em>Memex vault를 지식 은하로 시각화 — 노트는 별, <code>[[wikilink]]</code>은 엣지, 커뮤니티별 색상.</em></sub>
 
 </div>
 
@@ -99,6 +101,32 @@ git clone https://github.com/cmblir/memex.git
 cd memex
 bash mcp-server/install.sh    # Claude Desktop/Code용 MCP 서버
 ```
+
+---
+
+## 스크린샷
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/overview.png" alt="Overview — vault 통계, 점프백 카드, 최근 git 활동" /></td>
+<td width="50%"><img src="docs/screenshots/graph.png" alt="Graph — sigma.js + d3-force 링크 그래프, 커뮤니티별 색상" /></td>
+</tr>
+<tr>
+<td align="center"><sub><strong>Overview</strong> — 통계 · 점프백 · 최근 활동</sub></td>
+<td align="center"><sub><strong>Graph</strong> — 커뮤니티별 색상 링크 그래프</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/screenshots/reader.png" alt="Reader — CodeMirror 소스, 라이브 프리뷰, 백링크" /></td>
+<td width="50%"><img src="docs/screenshots/settings.png" alt="Settings — 작업별 프로바이더 + 모델 선택" /></td>
+</tr>
+<tr>
+<td align="center"><sub><strong>Reader</strong> — 소스 / 분할 / 프리뷰 + 백링크</sub></td>
+<td align="center"><sub><strong>Settings</strong> — Query / Ingest 모델 분리 지정</sub></td>
+</tr>
+</table>
+
+> 시드 샘플 vault에서 실행 중인 앱을 캡처. 새로 설치하면 상호 연결된 시작 노트
+> ~50개(LLM 지식 맵)가 시드되어 첫날부터 Graph가 이렇게 보입니다 — 언제든 삭제 가능.
 
 ---
 
