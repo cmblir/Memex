@@ -10,6 +10,7 @@ pub mod ollama;
 pub mod parser;
 pub mod provenance;
 pub mod providers;
+pub mod sample_vault;
 pub mod secrets;
 pub mod settings;
 pub mod vault;

@@ -60,6 +60,11 @@ fn seed_vault(target: &Path) -> Result<(), String> {
     write_if_missing(&target.join("CLAUDE.md"), VAULT_CLAUDE_MD)?;
     write_if_missing(&target.join("wiki/index.md"), WIKI_INDEX)?;
     write_if_missing(&target.join("wiki/log.md"), WIKI_LOG)?;
+    // A small set of interconnected starter notes so the Graph / Provenance /
+    // Overview views have content on first launch. Idempotent and deletable.
+    for (rel, content) in crate::sample_vault::SAMPLE_NOTES {
+        write_if_missing(&target.join(rel), content)?;
+    }
     Ok(())
 }
 
@@ -94,6 +99,10 @@ markdown on disk — you stay in control.
 3. Click **Ask** to question your wiki; answers cite the pages they
    come from.
 4. The **Graph** view shows every wikilink across the vault.
+
+Your `wiki/` already holds a few interconnected starter notes (LLM
+concepts) so the **Graph** isn't empty on day one — open it to explore,
+then delete them whenever you like.
 
 Open Settings → Connections to wire up your LLM provider (Claude CLI,
 Anthropic API, OpenAI, Gemini, Ollama, or OpenRouter).
@@ -149,22 +158,31 @@ with the prompt and the new `raw/<slug>.md` already written. Steps:
 
 const WIKI_INDEX: &str = r#"# Index
 
-Catalog of all wiki pages, grouped by type.
+Catalog of all wiki pages, grouped by type. These starter notes ship with a
+fresh vault so the Graph has something to show — delete them anytime.
 
 ## Sources
-_(empty — drop something via Ingest)_
+- [[source-attention-is-all-you-need]] — the 2017 paper that introduced the transformer
+- [[source-scaling-laws-paper]] — power-law scaling of loss with size and compute
 
 ## Entities
-_(empty)_
+- [[openai]] — AI research lab
+- [[anthropic]] — AI safety lab
 
 ## Concepts
-_(empty)_
+- [[transformer-architecture]] — attention-based neural network architecture
+- [[scaling-laws]] — loss as a power law in size, data, and compute
+- [[embeddings]] — tokens as vectors in a semantic space
+- [[alignment]] — making model behaviour match human intent
 
 ## Techniques
-_(empty)_
+- [[attention-mechanism]] — weigh every token against every other
+- [[tokenization]] — split text into model-readable units
+- [[rlhf]] — preference-based fine-tuning for alignment
+- [[fine-tuning]] — specialise a pretrained model
 
 ## Analyses
-_(empty)_
+- [[analysis-scaling-vs-data]] — does scale or data quality matter more?
 "#;
 
 const WIKI_LOG: &str = r#"# Log
@@ -688,6 +706,20 @@ mod tests {
         assert_eq!(
             contents, "user edits here\n",
             "must not clobber user content"
+        );
+    }
+
+    #[test]
+    fn seed_vault_writes_sample_graph() {
+        let dir = temp_vault("seed-sample");
+        seed_vault(&dir).unwrap();
+        assert!(dir.join("wiki/transformer-architecture.md").is_file());
+        assert!(dir.join("wiki/source-attention-is-all-you-need.md").is_file());
+        // The starter notes cross-link, so the link graph has resolved edges.
+        let adj = crate::index::build_link_graph(dir.to_str().unwrap()).unwrap();
+        assert!(
+            adj.forward.values().any(|v| !v.is_empty()),
+            "sample notes should form resolved graph edges"
         );
     }
 
