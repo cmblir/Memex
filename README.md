@@ -81,10 +81,14 @@ Mount/run, drag to Applications. On first launch Memex creates
 ├── raw/                 ← drop sources here (immutable)
 ├── wiki/                ← Claude-maintained pages
 │   ├── index.md
-│   └── log.md
+│   ├── log.md
+│   └── …                ← interconnected starter notes (LLM concepts)
 ├── daily/               ← daily notes (YYYY-MM-DD.md)
 └── ingest-reports/      ← WHY reports per ingest
 ```
+
+The `wiki/` ships with a small set of interconnected starter notes so the
+**Graph** view is populated on first launch — delete them anytime.
 
 To use a different folder (e.g. an existing Obsidian vault), open
 Settings → Account → Change…
