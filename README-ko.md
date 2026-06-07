@@ -35,7 +35,7 @@
 
 <img src="docs/screenshots/hero-graph.png" width="100%" alt="Memex 지식 그래프 — 커뮤니티별로 색칠된 수천 개의 상호 연결 노트" />
 
-<sub><em>Memex vault를 지식 은하로 시각화 — 노트는 별, <code>[[wikilink]]</code>은 엣지, 커뮤니티별 색상.</em></sub>
+<sub><em>Memex vault를 지식 은하로 시각화 — 모든 노트가 빛나는 별.</em></sub>
 
 </div>
 

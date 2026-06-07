@@ -35,7 +35,7 @@ Your knowledge compounds — in plain markdown you own.
 
 <img src="docs/screenshots/hero-graph.png" width="100%" alt="Memex knowledge graph — thousands of cross-linked notes clustered into colored communities" />
 
-<sub><em>A Memex vault visualized as a knowledge galaxy — every note a star, every <code>[[wikilink]]</code> an edge, colored by community.</em></sub>
+<sub><em>A Memex vault as a knowledge galaxy — every note a glowing star.</em></sub>
 
 </div>
 
