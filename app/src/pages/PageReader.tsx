@@ -119,6 +119,7 @@ function SamplePage({ id }: { id: string }): JSX.Element {
 function VaultPage({ path }: { path: string; t: Strings }): JSX.Element {
   const openFile = useVaultStore((s) => s.openFile);
   const activeFile = useVaultStore((s) => s.activeFile);
+  const currentVaultPath = useVaultStore((s) => s.currentVault?.path);
   const saveFile = useVaultStore((s) => s.saveFile);
   const resolveWikilink = useVaultStore((s) => s.resolveWikilink);
   const refreshTree = useVaultStore((s) => s.refreshTree);
@@ -132,9 +133,13 @@ function VaultPage({ path }: { path: string; t: Strings }): JSX.Element {
   const draftRef = useRef("");
   const dirtyRef = useRef(false);
 
+  // Re-open when the vault finishes loading too: on a cold launch / deep-link
+  // straight to a page route, App's auto-restore runs openVault (which resets
+  // activeFile to null) *after* this effect's first openFile, blanking the
+  // page. Re-running once currentVault is set restores the file.
   useEffect(() => {
     void openFile(path);
-  }, [path, openFile]);
+  }, [path, openFile, currentVaultPath]);
 
   useEffect(() => {
     if (activeFile?.path === path) {
