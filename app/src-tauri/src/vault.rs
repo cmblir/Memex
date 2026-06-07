@@ -162,27 +162,65 @@ Catalog of all wiki pages, grouped by type. These starter notes ship with a
 fresh vault so the Graph has something to show — delete them anytime.
 
 ## Sources
-- [[source-attention-is-all-you-need]] — the 2017 paper that introduced the transformer
-- [[source-scaling-laws-paper]] — power-law scaling of loss with size and compute
+- [[source-attention-is-all-you-need]] — Source: Attention Is All You Need
+- [[source-constitutional-ai-paper]] — Source: Constitutional AI
+- [[source-scaling-laws-paper]] — Source: Scaling Laws for Neural Language Models
 
 ## Entities
-- [[openai]] — AI research lab
-- [[anthropic]] — AI safety lab
+- [[anthropic]] — Anthropic
+- [[claude]] — Claude
+- [[gemini]] — Gemini
+- [[google-deepmind]] — Google DeepMind
+- [[gpt-4]] — GPT-4
+- [[llama]] — Llama
+- [[meta-ai]] — Meta AI
+- [[openai]] — OpenAI
 
 ## Concepts
-- [[transformer-architecture]] — attention-based neural network architecture
-- [[scaling-laws]] — loss as a power law in size, data, and compute
-- [[embeddings]] — tokens as vectors in a semantic space
-- [[alignment]] — making model behaviour match human intent
+- [[agents]] — Agents
+- [[alignment]] — Alignment
+- [[compute-budget]] — Compute Budget
+- [[embeddings]] — Embeddings
+- [[feedforward-network]] — Feedforward Network
+- [[in-context-learning]] — In-Context Learning
+- [[inference-optimization]] — Inference Optimization
+- [[interpretability]] — Interpretability
+- [[mcp]] — Model Context Protocol
+- [[planning]] — Planning
+- [[reasoning]] — Reasoning
+- [[residual-connections]] — Residual Connections
+- [[reward-modeling]] — Reward Modeling
+- [[scaling-laws]] — Scaling Laws
+- [[transformer-architecture]] — Transformer Architecture
+- [[vector-database]] — Vector Database
 
 ## Techniques
-- [[attention-mechanism]] — weigh every token against every other
-- [[tokenization]] — split text into model-readable units
-- [[rlhf]] — preference-based fine-tuning for alignment
-- [[fine-tuning]] — specialise a pretrained model
+- [[attention-mechanism]] — Attention Mechanism
+- [[byte-pair-encoding]] — Byte-Pair Encoding
+- [[chain-of-thought]] — Chain-of-Thought
+- [[constitutional-ai]] — Constitutional AI
+- [[distillation]] — Knowledge Distillation
+- [[dpo]] — Direct Preference Optimization
+- [[fine-tuning]] — Fine-tuning
+- [[function-calling]] — Function Calling
+- [[instruction-tuning]] — Instruction Tuning
+- [[kv-cache]] — KV Cache
+- [[layer-normalization]] — Layer Normalization
+- [[lora]] — LoRA
+- [[multi-head-attention]] — Multi-Head Attention
+- [[positional-encoding]] — Positional Encoding
+- [[pretraining]] — Pretraining
+- [[prompting]] — Prompting
+- [[quantization]] — Quantization
+- [[rag]] — Retrieval-Augmented Generation
+- [[rlhf]] — RLHF
+- [[self-attention]] — Self-Attention
+- [[tokenization]] — Tokenization
+- [[tool-use]] — Tool Use
 
 ## Analyses
-- [[analysis-scaling-vs-data]] — does scale or data quality matter more?
+- [[analysis-rlhf-vs-dpo]] — RLHF vs. DPO
+- [[analysis-scaling-vs-data]] — Scaling vs. Data Quality
 "#;
 
 const WIKI_LOG: &str = r#"# Log
