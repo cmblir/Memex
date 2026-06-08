@@ -110,9 +110,9 @@ bash mcp-server/install.sh    # MCP server for Claude Desktop/Code
 ## Screenshots
 
 <p align="center">
-<img src="docs/screenshots/galaxy.gif" width="100%" alt="The Memex knowledge galaxy rotating, then zooming into a cluster of notes" />
+<img src="docs/screenshots/graph-drag.gif" width="100%" alt="Dragging a node in the Memex graph — the d3-force simulation pulls its neighbours along, then springs back to rest" />
 <br/>
-<sub><em>The galaxy in motion — it spins, then dives into a single cluster so you can see the individual notes (~14k stars). In the app, every star is a note and a click away.</em></sub>
+<sub><em>The real Graph page: grab a node and the d3-force simulation re-heats — its neighbours follow, the rest dims, and on release everything springs back to rest (just like Obsidian).</em></sub>
 </p>
 
 <br/>

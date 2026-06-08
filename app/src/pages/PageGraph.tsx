@@ -133,6 +133,19 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
     });
     sigmaRef.current = renderer;
 
+    // DEV-ONLY: expose the renderer/graph so the screenshot harness can locate
+    // a node's screen position and drive a real drag for the README graph GIF.
+    // Stripped from production builds (import.meta.env.DEV === false).
+    if (import.meta.env.DEV) {
+      (
+        window as unknown as { __graphDev?: unknown }
+      ).__graphDev = {
+        renderer,
+        graph,
+        rect: () => container.getBoundingClientRect(),
+      };
+    }
+
     // WKWebView drops the WebGL context when backgrounded / under memory
     // pressure, leaving a blank canvas. sigma has no recovery, so on restore we
     // bump glEpoch → this effect tears down and rebuilds a fresh renderer.

@@ -107,9 +107,9 @@ bash mcp-server/install.sh    # Claude Desktop/Code용 MCP 서버
 ## 스크린샷
 
 <p align="center">
-<img src="docs/screenshots/galaxy.gif" width="100%" alt="Memex 지식 은하가 회전하다 노드 클러스터로 줌인" />
+<img src="docs/screenshots/graph-drag.gif" width="100%" alt="Memex 그래프에서 노드를 드래그 — d3-force 시뮬레이션이 이웃을 끌어당기고 놓으면 제자리로 복귀" />
 <br/>
-<sub><em>움직이는 은하 — 회전하다가 하나의 클러스터로 파고들어 개별 노트(별)들을 보여줍니다 (~14k개). 앱에서는 모든 별이 노트이고 클릭하면 열립니다.</em></sub>
+<sub><em>실제 Graph 화면: 노드를 잡으면 d3-force 시뮬레이션이 재가열돼 이웃이 따라오고, 나머지는 디밍되며, 놓으면 제자리로 튕겨 돌아옵니다 (Obsidian처럼).</em></sub>
 </p>
 
 <br/>
