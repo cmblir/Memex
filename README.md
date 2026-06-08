@@ -109,6 +109,14 @@ bash mcp-server/install.sh    # MCP server for Claude Desktop/Code
 
 ## Screenshots
 
+<p align="center">
+<img src="docs/screenshots/galaxy.gif" width="100%" alt="The Memex knowledge galaxy rotating, then zooming into a cluster of notes" />
+<br/>
+<sub><em>The galaxy in motion — it spins, then dives into a single cluster so you can see the individual notes (~14k stars). In the app, every star is a note and a click away.</em></sub>
+</p>
+
+<br/>
+
 <table>
 <tr>
 <td width="50%"><img src="docs/screenshots/overview.png" alt="Overview — vault stats, jump-back cards, recent git activity" /></td>

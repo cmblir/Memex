@@ -55,11 +55,13 @@ function starColor(f: number): string {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
-function build(): Graph {
+function build(): { g: Graph; focusId: string } {
   const g = new Graph({ type: "undirected" });
   let id = 0;
-  const add = (x: number, y: number, size: number, color: string): void => {
-    g.addNode(`s${id++}`, { x, y, size, color });
+  const add = (x: number, y: number, size: number, color: string): string => {
+    const key = `s${id++}`;
+    g.addNode(key, { x, y, size, color });
+    return key;
   };
 
   // --- Central bulge: dense, bright, warm. Blooms to a white-gold core. ---
@@ -115,12 +117,31 @@ function build(): Graph {
     add(Math.cos(a) * r, Math.sin(a) * r, 0.5 + Math.random() * 0.6, `rgba(200,212,240,${dim})`);
   }
 
-  return g;
+  // --- Focus cluster: a tight knot of bright stars on an arm, so the GIF's
+  // zoom-in reveals individual clustered nodes (a "community"). ---
+  const fr = R * 0.58;
+  const ftheta = (TURNS * 2 * Math.PI * Math.log(1 + fr / R)) / Math.log(2);
+  const fcx = Math.cos(ftheta) * fr;
+  const fcy = Math.sin(ftheta) * fr;
+  let focusId = "";
+  for (let i = 0; i < 60; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const rr = Math.abs(randn()) * R * 0.018;
+    const k = add(
+      fcx + Math.cos(a) * rr,
+      fcy + Math.sin(a) * rr,
+      2 + Math.abs(randn()) * 2.5,
+      Math.random() < 0.5 ? "rgba(206,224,255,0.95)" : "rgba(255,210,170,0.95)",
+    );
+    if (i === 0) focusId = k;
+  }
+
+  return { g, focusId };
 }
 
 const container = document.getElementById("app");
 if (container) {
-  const graph = build();
+  const { g: graph, focusId } = build();
   const renderer = new Sigma(graph, container as HTMLElement, {
     defaultNodeType: "glow",
     nodeProgramClasses: { glow: NodeGlowProgram },
@@ -132,7 +153,29 @@ if (container) {
   fitViewportToNodes(renderer, graph.nodes(), { animate: false });
   const cam = renderer.getCamera();
   cam.setState({ ratio: cam.getState().ratio * 0.78 });
-  (window as unknown as { __graphReady?: boolean; __nodeCount?: number }).__graphReady = true;
-  (window as unknown as { __nodeCount?: number }).__nodeCount = graph.order;
-  console.info("[bigGraph] rendered galaxy:", graph.order, "stars");
+
+  // Animation hook for the GIF capture script. __frame(t), t in [0,1]:
+  // continuous rotation (full turn so it loops) + a boomerang zoom from the
+  // wide galaxy into the focus star cluster and back out.
+  const base = cam.getState();
+  const focus = renderer.getNodeDisplayData(focusId) ?? { x: base.x, y: base.y };
+  const w = window as unknown as {
+    __frame?: (t: number) => void;
+    __graphReady?: boolean;
+    __nodeCount?: number;
+  };
+  w.__frame = (t: number): void => {
+    const turn = t * Math.PI * 2; // full rotation -> seamless loop
+    const tri = t < 0.5 ? t * 2 : (1 - t) * 2; // 0 -> 1 -> 0
+    const k = tri * tri * (3 - 2 * tri); // smoothstep ease
+    cam.setState({
+      x: base.x + (focus.x - base.x) * k,
+      y: base.y + (focus.y - base.y) * k,
+      ratio: base.ratio * (1 - k) + base.ratio * 0.05 * k,
+      angle: turn,
+    });
+  };
+  w.__graphReady = true;
+  w.__nodeCount = graph.order;
+  console.info("[bigGraph] rendered galaxy:", graph.order, "stars; focus", focusId);
 }

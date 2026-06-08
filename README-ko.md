@@ -106,6 +106,14 @@ bash mcp-server/install.sh    # Claude Desktop/Code용 MCP 서버
 
 ## 스크린샷
 
+<p align="center">
+<img src="docs/screenshots/galaxy.gif" width="100%" alt="Memex 지식 은하가 회전하다 노드 클러스터로 줌인" />
+<br/>
+<sub><em>움직이는 은하 — 회전하다가 하나의 클러스터로 파고들어 개별 노트(별)들을 보여줍니다 (~14k개). 앱에서는 모든 별이 노트이고 클릭하면 열립니다.</em></sub>
+</p>
+
+<br/>
+
 <table>
 <tr>
 <td width="50%"><img src="docs/screenshots/overview.png" alt="Overview — vault 통계, 점프백 카드, 최근 git 활동" /></td>
