@@ -6,6 +6,7 @@ use crate::claude::{self, CliResult, CliStatus};
 use crate::cli_agent;
 use crate::git_log::{self, Commit};
 use crate::index::{self, Adjacency};
+use crate::mcp_server::{self, McpRegInfo};
 use crate::ollama::{self, OllamaStatus};
 use crate::parser;
 use crate::provenance::{self, ProvenanceRow};
@@ -258,4 +259,23 @@ pub fn open_external(url: String) -> Result<(), String> {
         std::process::Command::new("xdg-open").arg(&url).spawn()
     };
     cmd.map(|_| ()).map_err(|e| format!("open failed: {e}"))
+}
+
+#[tauri::command]
+pub fn mcp_registration_info(vault_path: String) -> McpRegInfo {
+    mcp_server::registration_info(&vault_path)
+}
+
+#[tauri::command]
+pub async fn mcp_install(vault_path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || mcp_server::install(&vault_path))
+        .await
+        .map_err(|e| format!("join failed: {e}"))?
+}
+
+#[tauri::command]
+pub async fn mcp_register(vault_path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || mcp_server::register(&vault_path))
+        .await
+        .map_err(|e| format!("join failed: {e}"))?
 }

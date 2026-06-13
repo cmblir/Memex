@@ -4,6 +4,7 @@
 
 pub mod claude;
 pub mod cli_agent;
+pub mod mcp_server;
 mod commands;
 pub mod git_log;
 pub mod index;
@@ -52,6 +53,9 @@ pub fn run() {
             commands::ollama_status,
             commands::ollama_install_url,
             commands::open_external,
+            commands::mcp_registration_info,
+            commands::mcp_install,
+            commands::mcp_register,
         ])
         .setup(|_app| Ok(()))
         .build(tauri::generate_context!())
