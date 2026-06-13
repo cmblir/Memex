@@ -12,7 +12,7 @@ import type { Theme } from "../stores/uiStore";
 import { useVaultStore } from "../stores/vaultStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { ipc } from "../lib/ipc";
-import type { MemexSettings, OllamaStatus } from "../lib/ipc";
+import type { McpRegInfo, MemexSettings, OllamaStatus } from "../lib/ipc";
 import OllamaSetup from "../components/OllamaSetup";
 
 export interface ProviderDef {
@@ -107,13 +107,14 @@ export default function PageSettings({ t }: { t: Strings }): JSX.Element {
   const setTheme = useUIStore((s) => s.setTheme);
 
   const [tab, setTab] = useState<
-    "account" | "model" | "providers" | "lang" | "appearance" | "about"
+    "account" | "model" | "providers" | "mcp" | "lang" | "appearance" | "about"
   >("model");
 
   const tabs: { id: typeof tab; label: string; icon: IconName }[] = [
     { id: "account", label: t.s_account, icon: "shield" },
     { id: "model", label: t.s_model, icon: "sparkles" },
     { id: "providers", label: t.s_providers, icon: "link" },
+    { id: "mcp", label: t.s_mcp, icon: "terminal" },
     { id: "lang", label: t.s_lang, icon: "globe" },
     { id: "appearance", label: t.s_appearance, icon: "moon" },
     { id: "about", label: t.s_about, icon: "info" },
@@ -151,6 +152,7 @@ export default function PageSettings({ t }: { t: Strings }): JSX.Element {
           {tab === "account" ? <SettingsAccount t={t} /> : null}
           {tab === "model" ? <SettingsModel t={t} /> : null}
           {tab === "providers" ? <SettingsProviders t={t} /> : null}
+          {tab === "mcp" ? <SettingsMcp t={t} /> : null}
           {tab === "lang" ? (
             <SettingsLang t={t} lang={lang} setLang={setLang} />
           ) : null}
@@ -737,6 +739,165 @@ function SettingsProviders({ t }: { t: Strings }): JSX.Element {
           Credential Manager / Secret Service), not in plaintext on disk.
         </div>
       </div>
+    </div>
+  );
+}
+
+function SettingsMcp({ t }: { t: Strings }): JSX.Element {
+  const currentVault = useVaultStore((s) => s.currentVault);
+  const [info, setInfo] = useState<McpRegInfo | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
+
+  useEffect(() => {
+    if (!currentVault) return;
+    let alive = true;
+    ipc
+      .mcpRegistrationInfo(currentVault.path)
+      .then((i) => {
+        if (alive) setInfo(i);
+      })
+      .catch((e) => {
+        if (alive) setError(String(e));
+      });
+    return () => {
+      alive = false;
+    };
+  }, [currentVault, tick]);
+
+  function copy(text: string, which: string): void {
+    void navigator.clipboard.writeText(text).then(() => {
+      setCopied(which);
+      window.setTimeout(() => setCopied(null), 1500);
+    });
+  }
+
+  async function install(): Promise<void> {
+    if (!currentVault) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await ipc.mcpInstall(currentVault.path);
+      setTick((n) => n + 1);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function register(): Promise<void> {
+    if (!currentVault) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await ipc.mcpRegister(currentVault.path);
+      setTick((n) => n + 1);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!currentVault) return <div className="muted">Loading…</div>;
+
+  const codeBox = (text: string, which: string): JSX.Element => (
+    <div
+      className="card"
+      style={{
+        display: "flex",
+        alignItems: "flex-start",
+        gap: 10,
+        padding: 12,
+        fontFamily: "monospace",
+        fontSize: 12,
+        whiteSpace: "pre-wrap",
+        wordBreak: "break-all",
+      }}
+    >
+      <span style={{ flex: 1 }}>{text}</span>
+      <button className="btn" onClick={() => copy(text, which)}>
+        {copied === which ? t.mcp_copied : t.mcp_copy}
+      </button>
+    </div>
+  );
+
+  return (
+    <div className="col" style={{ gap: 20 }}>
+      <div>
+        <h2 style={{ fontSize: 22, fontWeight: 600, margin: 0 }}>{t.s_mcp}</h2>
+        <p className="muted" style={{ margin: "6px 0 0", fontSize: 14 }}>
+          {t.mcp_lede}
+        </p>
+      </div>
+
+      {info && !info.found ? (
+        <div className="card" style={{ padding: 14, fontSize: 13 }} role="alert">
+          {t.mcp_not_found}
+        </div>
+      ) : null}
+
+      {info && info.found && !info.installed ? (
+        <div className="col" style={{ gap: 10 }}>
+          <div className="muted" style={{ fontSize: 13 }}>
+            {t.mcp_status_not_installed}
+          </div>
+          <button
+            className="btn btn-primary"
+            disabled={busy}
+            onClick={() => void install()}
+            style={{ alignSelf: "flex-start" }}
+          >
+            {busy ? t.mcp_installing : t.mcp_install_btn}
+          </button>
+        </div>
+      ) : null}
+
+      {info && info.installed && info.command && info.desktop_json ? (
+        <div className="col" style={{ gap: 16 }}>
+          <div className="muted" style={{ fontSize: 13 }}>
+            ✓ {t.mcp_status_installed}
+          </div>
+
+          <div className="col" style={{ gap: 6 }}>
+            <div style={{ fontWeight: 600, fontSize: 13 }}>
+              {t.mcp_command_label}
+            </div>
+            {codeBox(info.command, "cmd")}
+            <button
+              className="btn"
+              disabled={busy}
+              onClick={() => void register()}
+              style={{ alignSelf: "flex-start" }}
+            >
+              {t.mcp_register_btn}
+            </button>
+          </div>
+
+          <div className="col" style={{ gap: 6 }}>
+            <div style={{ fontWeight: 600, fontSize: 13 }}>
+              {t.mcp_desktop_label}
+            </div>
+            <div className="muted" style={{ fontSize: 12 }}>
+              {t.mcp_desktop_path}
+            </div>
+            {codeBox(info.desktop_json, "desktop")}
+          </div>
+
+          <div className="muted" style={{ fontSize: 12 }}>
+            {t.mcp_offline_note}
+          </div>
+        </div>
+      ) : null}
+
+      {error ? (
+        <div style={{ color: "#dc2626", fontSize: 12, whiteSpace: "pre-wrap" }}>
+          {error}
+        </div>
+      ) : null}
     </div>
   );
 }

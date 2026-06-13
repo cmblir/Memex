@@ -45,6 +45,15 @@ export interface ClaudeStatus {
   path: string | null;
 }
 
+export interface McpRegInfo {
+  found: boolean;
+  installed: boolean;
+  python: string | null;
+  script: string | null;
+  command: string | null;
+  desktop_json: string | null;
+}
+
 export interface ClaudeResult {
   stdout: string;
   stderr: string;
@@ -185,4 +194,10 @@ export const ipc = {
   ollamaStatus: () => invoke<OllamaStatus>("ollama_status"),
   ollamaInstallUrl: () => invoke<string>("ollama_install_url"),
   openExternal: (url: string) => invoke<null>("open_external", { url }),
+  mcpRegistrationInfo: (vaultPath: string) =>
+    invoke<McpRegInfo>("mcp_registration_info", { vaultPath }),
+  mcpInstall: (vaultPath: string) =>
+    invoke<string>("mcp_install", { vaultPath }),
+  mcpRegister: (vaultPath: string) =>
+    invoke<string>("mcp_register", { vaultPath }),
 };

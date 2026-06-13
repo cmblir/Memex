@@ -133,9 +133,23 @@ export interface Strings {
   s_workspace: string;
   s_model: string;
   s_providers: string;
+  s_mcp: string;
   s_appearance: string;
   s_lang: string;
   s_about: string;
+  mcp_lede: string;
+  mcp_status_installed: string;
+  mcp_status_not_installed: string;
+  mcp_install_btn: string;
+  mcp_installing: string;
+  mcp_command_label: string;
+  mcp_desktop_label: string;
+  mcp_desktop_path: string;
+  mcp_copy: string;
+  mcp_copied: string;
+  mcp_register_btn: string;
+  mcp_offline_note: string;
+  mcp_not_found: string;
   s_model_lede: string;
   s_model_ingest: string;
   s_model_query: string;
@@ -299,6 +313,24 @@ export const STRINGS: Record<Lang, Strings> = {
     s_appearance: "Appearance",
     s_lang: "Language",
     s_about: "About",
+    s_mcp: "MCP Server",
+    mcp_lede:
+      "Expose this vault to Claude Code and Claude Desktop as MCP tools. Register once with the command below — it then works in every Claude session, even when this app is closed.",
+    mcp_status_installed: "MCP server installed",
+    mcp_status_not_installed: "MCP server not installed",
+    mcp_install_btn: "Install MCP server",
+    mcp_installing: "Installing…",
+    mcp_command_label: "Register with Claude Code",
+    mcp_desktop_label: "Claude Desktop config",
+    mcp_desktop_path:
+      "Add to ~/Library/Application Support/Claude/claude_desktop_config.json",
+    mcp_copy: "Copy",
+    mcp_copied: "Copied",
+    mcp_register_btn: "Register to Claude Code now",
+    mcp_offline_note:
+      "Works even when Memex is closed — Claude launches the server itself.",
+    mcp_not_found:
+      "Could not find mcp-server/ near this vault. Open the Memex repo as your vault.",
     s_model_lede:
       "Memex uses Claude by default. You can switch models for ingest, queries, or both — each task can use a different model.",
     s_model_ingest: "Ingest model",
@@ -464,6 +496,24 @@ export const STRINGS: Record<Lang, Strings> = {
     s_appearance: "테마",
     s_lang: "언어",
     s_about: "정보",
+    s_mcp: "MCP 서버",
+    mcp_lede:
+      "이 vault를 Claude Code·Claude Desktop에 MCP 도구로 노출합니다. 아래 명령으로 한 번만 등록하면, 이 앱이 꺼져 있어도 모든 Claude 세션에서 동작합니다.",
+    mcp_status_installed: "MCP 서버 설치됨",
+    mcp_status_not_installed: "MCP 서버 미설치",
+    mcp_install_btn: "MCP 서버 설치",
+    mcp_installing: "설치 중…",
+    mcp_command_label: "Claude Code에 등록",
+    mcp_desktop_label: "Claude Desktop 설정",
+    mcp_desktop_path:
+      "~/Library/Application Support/Claude/claude_desktop_config.json 에 추가",
+    mcp_copy: "복사",
+    mcp_copied: "복사됨",
+    mcp_register_btn: "지금 Claude Code에 등록",
+    mcp_offline_note:
+      "Memex가 꺼져 있어도 동작 — Claude가 서버를 직접 띄웁니다.",
+    mcp_not_found:
+      "이 vault 근처에서 mcp-server/ 를 찾지 못했습니다. Memex 레포를 vault로 여세요.",
     s_model_lede:
       "Memex는 기본적으로 Claude를 사용합니다. 가져오기와 질문에 서로 다른 모델을 지정할 수 있습니다.",
     s_model_ingest: "가져오기용 모델",
@@ -629,6 +679,24 @@ export const STRINGS: Record<Lang, Strings> = {
     s_appearance: "外観",
     s_lang: "言語",
     s_about: "Memex について",
+    s_mcp: "MCP サーバー",
+    mcp_lede:
+      "この vault を Claude Code・Claude Desktop に MCP ツールとして公開します。下のコマンドで一度登録すれば、このアプリを閉じていても全ての Claude セッションで動作します。",
+    mcp_status_installed: "MCP サーバー導入済み",
+    mcp_status_not_installed: "MCP サーバー未導入",
+    mcp_install_btn: "MCP サーバーを導入",
+    mcp_installing: "導入中…",
+    mcp_command_label: "Claude Code に登録",
+    mcp_desktop_label: "Claude Desktop 設定",
+    mcp_desktop_path:
+      "~/Library/Application Support/Claude/claude_desktop_config.json に追加",
+    mcp_copy: "コピー",
+    mcp_copied: "コピー済み",
+    mcp_register_btn: "今すぐ Claude Code に登録",
+    mcp_offline_note:
+      "Memex を閉じていても動作 — Claude がサーバーを自分で起動します。",
+    mcp_not_found:
+      "この vault 付近に mcp-server/ が見つかりません。Memex リポジトリを vault として開いてください。",
     s_model_lede:
       "Memex は標準で Claude を使います。取り込みと質問で別々のモデルを指定できます。",
     s_model_ingest: "取り込み用モデル",
