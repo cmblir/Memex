@@ -144,10 +144,8 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
       existingOnly: s.existingOnly,
       showOrphans: s.showOrphans,
     });
-    const graph: VaultGraph = buildGraph(adjacency, allowed, allFiles, {
+    const graph: VaultGraph = buildGraph(adjacency, allowed, {
       nodeSize: s.nodeSize,
-      starBright: theme.starBright,
-      starMid: theme.starMid,
       starDim: theme.starDim,
       edgeColor: theme.edge,
     });
@@ -160,6 +158,19 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
       ...nodeProgramSettings(),
     });
     sigmaRef.current = renderer;
+
+    // DEV-ONLY: expose the renderer/graph so the screenshot harness can locate
+    // a node's screen position and drive a real drag for the README graph GIF.
+    // Stripped from production builds (import.meta.env.DEV === false).
+    if (import.meta.env.DEV) {
+      (
+        window as unknown as { __graphDev?: unknown }
+      ).__graphDev = {
+        renderer,
+        graph,
+        rect: () => container.getBoundingClientRect(),
+      };
+    }
 
     // WKWebView drops the WebGL context when backgrounded / under memory
     // pressure, leaving a blank canvas. sigma has no recovery, so on restore we
@@ -350,6 +361,16 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
       window.clearInterval(fitTimer);
       window.clearTimeout(revealTimer);
       window.clearTimeout(revealSafety);
+      // Tear down any in-flight timelapse before the renderer/sim are killed.
+      // Otherwise its RAF loop survives the rebuild, runs against the freshly
+      // re-assigned sigmaRef/simRef, and calls setNodeAttribute() with node ids
+      // from the OLD graph — which throws NotFoundGraphError — and leaves the
+      // play button stuck "on".
+      if (tlRafRef.current != null) {
+        cancelAnimationFrame(tlRafRef.current);
+        tlRafRef.current = null;
+      }
+      setTlPlaying(false);
       container.removeEventListener("wheel", takeOver);
       container.removeEventListener("pointerdown", takeOver);
       for (const cv of canvases) {
@@ -547,7 +568,6 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
           y: p.y,
           deg: 0,
           size: Math.max(1, s.nodeSize),
-          unresolved: 0,
           color: theme.starDim,
         });
       }

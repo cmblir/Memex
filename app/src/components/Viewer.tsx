@@ -5,6 +5,7 @@
 import { useMemo } from "react";
 import type { JSX, MouseEvent } from "react";
 import { markdownRenderer } from "../lib/markdown";
+import { ipc } from "../lib/ipc";
 
 export interface ViewerProps {
   content: string;
@@ -20,6 +21,14 @@ export default function Viewer({
   function handleClick(e: MouseEvent<HTMLDivElement>) {
     const target = e.target;
     if (!(target instanceof HTMLElement)) return;
+    // External link / bare URL: open in the OS browser, don't navigate the app.
+    const external = target.closest<HTMLElement>("[data-external]");
+    if (external) {
+      e.preventDefault();
+      const href = external.getAttribute("data-external");
+      if (href) void ipc.openExternal(href);
+      return;
+    }
     const linkTarget = target.closest<HTMLElement>("[data-link]");
     if (!linkTarget) return;
     e.preventDefault();

@@ -63,6 +63,20 @@ export function createRenderer(): MarkdownIt {
     return `<a data-link="${escapeHtml(target)}" class="memex-wikilink" href="#">${escapeHtml(display)}</a>`;
   };
 
+  // Mark external links (incl. linkified bare URLs) so the Viewer can open them
+  // in the OS browser via ipc.openExternal instead of navigating the Tauri
+  // webview away from the single-page app.
+  md.renderer.rules.link_open = (tokens, idx, options, _env, self) => {
+    const token = tokens[idx];
+    const href = token.attrGet("href") ?? "";
+    if (/^(https?:|mailto:)/i.test(href)) {
+      token.attrSet("data-external", href);
+      token.attrSet("rel", "noopener noreferrer");
+      token.attrSet("target", "_blank");
+    }
+    return self.renderToken(tokens, idx, options);
+  };
+
   return md;
 }
 

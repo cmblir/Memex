@@ -117,8 +117,6 @@ export interface Strings {
   gr_timelapse_pause: string;
   h_title: string;
   h_lede: string;
-  h_view: string;
-  h_revert: string;
   h_created: string;
   h_modified: string;
   p_title: string;
@@ -280,8 +278,6 @@ export const STRINGS: Record<Lang, Strings> = {
     h_title: "History",
     h_lede:
       "Every ingest files a WHY report. Browse what each run created and changed, newest first.",
-    h_view: "View diff",
-    h_revert: "Revert",
     h_created: "created",
     h_modified: "modified",
     h_empty:
@@ -447,8 +443,6 @@ export const STRINGS: Record<Lang, Strings> = {
     h_title: "히스토리",
     h_lede:
       "모든 가져오기는 WHY 보고서를 남깁니다. 각 실행이 무엇을 만들고 바꿨는지 최신순으로 봅니다.",
-    h_view: "diff 보기",
-    h_revert: "되돌리기",
     h_created: "생성",
     h_modified: "수정",
     h_empty:
@@ -614,8 +608,6 @@ export const STRINGS: Record<Lang, Strings> = {
     h_title: "履歴",
     h_lede:
       "すべての取り込みは WHY レポートを残します。各実行が何を作り、何を変えたかを新しい順に見られます。",
-    h_view: "diff を見る",
-    h_revert: "戻す",
     h_created: "作成",
     h_modified: "変更",
     h_empty:

@@ -294,8 +294,8 @@ def _copy_template(template_name: str, dest: Path) -> None:
     dest.write_text(src_file.read_text("utf-8"), encoding="utf-8")
 
 
-# server.py에서 주입하는 모델 검증 훅. 기본값은 통과(레거시 호환).
-# 반환 True면 허용, False면 거부.
+# Optional model-validation hook a caller may inject. Default passes everything
+# (legacy-compatible). Return True to allow, False to reject.
 _model_validator = lambda m: True  # noqa: E731
 
 

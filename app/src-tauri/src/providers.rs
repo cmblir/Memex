@@ -339,7 +339,7 @@ async fn list_openai_models(
     if let Some(arr) = json.get("data").and_then(|v| v.as_array()) {
         for item in arr {
             if let Some(id) = item.get("id").and_then(|v| v.as_str()) {
-                if id.starts_with("gpt-") || id.starts_with("o1") || id.starts_with("o3") {
+                if is_chat_model(id) {
                     out.push(id.to_string());
                 }
             }
@@ -347,6 +347,23 @@ async fn list_openai_models(
     }
     out.sort();
     Ok(out)
+}
+
+// Keep all chat-capable models from the live /v1/models list (gpt-*, o1/o3/o4
+// reasoning, chatgpt-*, and future families) and only drop the obvious
+// non-chat ones, rather than a stale prefix allowlist that hides new models.
+fn is_chat_model(id: &str) -> bool {
+    const NON_CHAT: [&str; 8] = [
+        "embedding",
+        "whisper",
+        "tts",
+        "dall-e",
+        "image",
+        "moderation",
+        "audio",
+        "realtime",
+    ];
+    !NON_CHAT.iter().any(|frag| id.contains(frag))
 }
 
 async fn list_openrouter_models(client: &reqwest::Client) -> Result<Vec<String>, String> {

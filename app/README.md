@@ -51,7 +51,7 @@ Settings → Account.
 | Lint | "Run lint" in Provenance shells the CLAUDE.md checklist (structure / citation / connection / freshness) to the active model and renders a Markdown report. The run lives in a global store — navigate freely while it works; a Topbar chip tracks it and flips to done/failed until you return |
 | Provenance | Per-page citation coverage (claim lines vs cited claims); sort by lowest coverage, slider threshold flags below-target pages |
 | History | Lists the WHY report each ingest files under `ingest-reports/`, newest first, with an expandable in-place markdown preview and an open-in-reader jump |
-| Graph | Full vault link graph via Cytoscape.js with **d3-force** (the same force family Obsidian uses: link + many-body + x/y + collision). Every note shows, including link-less orphans — strong centre gravity packs them into one dense, even disk. Layout runs once then rests (no idle CPU); **dragging a node re-heats the sim** so neighbours follow and it springs back on release. Right-side drawer mirrors Obsidian's panel: Filters (search, tags, folder, orphans, existing-only), Display (arrows, text fade, node size, link thickness, ▶ play), Forces (center, repel, link, link-distance) each driving a real d3-force param. Hover spotlights the 1-hop neighbourhood, click opens the file. **▶ Timelapse** reveals notes oldest-to-newest by mtime at their settled positions (edges appear as nodes connect) — a zero-physics reveal, smooth at any size, camera fixed. Drawer + slider state persists to localStorage |
+| Graph | Full vault link graph rendered with **sigma.js** (WebGL) over a **d3-force** layout (the same force family Obsidian uses: link + many-body + x/y + collision), with degree-normalised link strength so leaves hug their hub and clusters drift into separated "dandelions". Every note shows, including link-less orphans. Layout runs once then rests (no idle CPU); **dragging a node re-heats the sim** so neighbours follow and it springs back on release. Right-side drawer mirrors Obsidian's panel: Filters (search, tags, folder, orphans, existing-only), Display (arrows, text fade, node size, link thickness, ▶ play), Forces (center, repel, link, link-distance) each driving a real d3-force param. Hover spotlights the 1-hop neighbourhood, click opens the file. **▶ Timelapse** reveals notes oldest-to-newest by mtime at their settled positions (edges appear as nodes connect) — a zero-physics reveal, smooth at any size, camera fixed. Drawer + slider state persists to localStorage |
 
 ### Model connections
 
@@ -91,8 +91,9 @@ Download a release bundle:
 Mount/run, drag to Applications.
 
 On first launch Memex creates `~/Documents/Memex/` and seeds it with the
-canonical layout. To use a different folder, open Settings → Account →
-Change…
+canonical layout plus a few interconnected starter notes (LLM concepts) so
+the Graph is populated on day one — delete them anytime. To use a different
+folder, open Settings → Account → Change…
 
 ## Dev
 
@@ -113,7 +114,7 @@ npm run lint           # eslint over src/
 npm run format         # prettier write src/
 cargo fmt              # in app/src-tauri
 cargo clippy -- -D warnings
-cargo test             # Rust unit tests (29 currently)
+cargo test             # Rust unit + integration tests (66 currently)
 ```
 
 ## Build
@@ -125,7 +126,7 @@ npm run tauri build
 
 Outputs land in `app/src-tauri/target/release/bundle/`:
 
-- `dmg/Memex_x.y.z_aarch64.dmg` — macOS installer (~3.4 MB)
+- `dmg/Memex_x.y.z_aarch64.dmg` — macOS installer (~2.8 MB)
 - `nsis/Memex_x.y.z_x64-setup.exe` — Windows installer (when built on Windows)
 - `macos/Memex.app/` — raw `.app` bundle
 
@@ -149,7 +150,7 @@ app/
 │   │   ├── PageOverview.tsx   # stats + recent git
 │   │   ├── PageIngest.tsx     # drop → raw/ → model → wiki
 │   │   ├── PageQuery.tsx      # ask the wiki (with cite expansion)
-│   │   ├── PageGraph.tsx      # Cytoscape.js + d3-force (drag re-heats; timelapse reveal)
+│   │   ├── PageGraph.tsx      # sigma.js (WebGL) + d3-force (drag re-heats; timelapse reveal)
 │   │   ├── components/GraphControls.tsx  # right-side settings drawer (Filters/Display/Forces)
 │   │   ├── PageHistory.tsx    # git log
 │   │   ├── PageProvenance.tsx # citation coverage + lint
@@ -173,7 +174,8 @@ app/
     │   ├── commands.rs        # thin IPC adapter layer
     │   ├── vault.rs           # open/list/read/write/CRUD + scaffold seed
     │   ├── parser.rs          # wikilink regex parser
-    │   ├── index.rs           # link graph + tag map + SQLite cache
+    │   ├── index.rs           # link graph + tag map (deduped wikilinks)
+    │   ├── sample_vault.rs    # interconnected starter notes seeded on first launch
     │   ├── git_log.rs         # shells `git log` and parses shortstat
     │   ├── claude.rs          # `claude --print` bridge (CLI provider)
     │   ├── providers.rs       # 5 HTTP adapters (anthropic/openai/google/ollama/openrouter)
@@ -195,11 +197,12 @@ defined in `src/lib/ipc.ts` and `src-tauri/src/commands.rs`:
 | `ensure_default_vault` | Create `~/Documents/Memex/` with scaffolding if missing |
 | `list_files` | Recursive `.md` walk → `FileNode` tree |
 | `read_file` | Read a file + parse YAML frontmatter (gray_matter) |
+| `read_vault_context` | Concatenate vault markdown (bounded) so non-CLI providers can answer Query/Lint with real context |
 | `write_file` | Atomic write via tempfile + rename |
 | `create_file` / `create_folder` | Name-validated create in a parent dir |
 | `rename_path` / `delete_path` | Move within parent / remove |
 | `parse_links` | Extract `[[wikilinks]]` from one file |
-| `build_link_graph` | Full vault scan; adjacency + tag map; cached to `<vault>/.memex/cache.db` |
+| `build_link_graph` | Full vault scan; adjacency + tag map (repeated wikilinks deduped) |
 | `git_log` | Shells `git log --shortstat`, parses into commits |
 | `scan_provenance` | Per-file claim/cite count |
 | `claude_check` | Locate the `claude` binary, return version |
@@ -212,9 +215,9 @@ defined in `src/lib/ipc.ts` and `src-tauri/src/commands.rs`:
 ### Storage
 
 Files on disk are the source of truth. Memex never modifies your files
-outside explicit writes. The SQLite cache at `<vault>/.memex/cache.db`
-holds derived link data only and is rebuilt on every `build_link_graph`
-call. Persistent app settings (not your notes) live at:
+outside explicit writes. The link graph is derived fresh from the markdown
+on every `build_link_graph` call (no cache). Persistent app settings (not
+your notes) live at:
 
 - macOS: `~/Library/Application Support/dev.cmblir.memex/settings.json`
 - Windows: `%APPDATA%/Memex/settings.json`

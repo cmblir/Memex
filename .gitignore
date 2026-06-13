@@ -9,9 +9,7 @@ Thumbs.db
 .trash/
 
 # Build artifacts
-dashboard/data.json
 query-log.jsonl
-.dashboard-settings.json
 __pycache__/
 *.pyc
 
@@ -30,3 +28,6 @@ docs/.venv/
 
 # Local dev scratch
 commits.tsv
+
+# Playwright MCP scratch output
+.playwright-mcp/

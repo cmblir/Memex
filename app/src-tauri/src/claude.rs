@@ -8,7 +8,7 @@
 // write project files when given file-tool permissions.
 
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Mutex, OnceLock};
@@ -85,7 +85,7 @@ pub fn run_prompt(prompt: &str, cwd: &str) -> Result<CliResult, String> {
     // var overrides if a user wants a tighter set.
     let allowed = std::env::var("MEMEX_CLAUDE_TOOLS")
         .unwrap_or_else(|_| "Read,Write,Edit,Glob,Grep,Bash".to_string());
-    let mut child = Command::new(&path)
+    let child = Command::new(&path)
         .arg("--print")
         .arg("--allowedTools")
         .arg(&allowed)
@@ -97,18 +97,11 @@ pub fn run_prompt(prompt: &str, cwd: &str) -> Result<CliResult, String> {
         .spawn()
         .map_err(|e| format!("spawn claude failed: {e}"))?;
 
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin
-            .write_all(prompt.as_bytes())
-            .map_err(|e| format!("stdin write failed: {e}"))?;
-    }
-
-    let output = wait_with_timeout(child, Duration::from_secs(DEFAULT_TIMEOUT_SECS))?;
-    Ok(CliResult {
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-        status: output.status.code().unwrap_or(-1),
-    })
+    run_with_timeout(
+        child,
+        prompt.as_bytes().to_vec(),
+        Duration::from_secs(DEFAULT_TIMEOUT_SECS),
+    )
 }
 
 /// One event parsed from the CLI's `stream-json` output. `kind` is one of:
@@ -381,13 +374,23 @@ pub(crate) fn locate_bin(bin: &str, env_var: &str) -> Option<String> {
 
 fn candidate_paths(bin: &str) -> Vec<String> {
     let home = std::env::var("HOME").unwrap_or_default();
-    vec![
+    let mut paths = vec![
         format!("{home}/.local/bin/{bin}"),    // native installers
         format!("{home}/.claude/local/{bin}"), // claude migrate-installer
         format!("/opt/homebrew/bin/{bin}"),    // Homebrew (Apple Silicon)
         format!("/usr/local/bin/{bin}"),       // Homebrew (Intel) / npm -g
         format!("{home}/.npm-global/bin/{bin}"), // npm custom prefix
-    ]
+        format!("{home}/.bun/bin/{bin}"),      // bun global
+    ];
+    // nvm installs under ~/.nvm/versions/node/<version>/bin — try newest first.
+    if let Ok(entries) = std::fs::read_dir(format!("{home}/.nvm/versions/node")) {
+        let mut versions: Vec<_> = entries.flatten().map(|e| e.path()).collect();
+        versions.sort();
+        for v in versions.into_iter().rev() {
+            paths.push(v.join(format!("bin/{bin}")).to_string_lossy().into_owned());
+        }
+    }
+    paths
 }
 
 fn login_shell_lookup(bin: &str) -> Option<String> {
@@ -456,6 +459,70 @@ pub(crate) fn wait_with_timeout(
             Err(e) => return Err(format!("try_wait failed: {e}")),
         }
     }
+}
+
+// Run the child to completion (or timeout), feeding `prompt` to stdin and
+// draining stdout/stderr on dedicated threads. Concurrent drain is required:
+// if we wrote the whole prompt before reading, a child that fills its stdout
+// pipe buffer (~64 KB) would block on write while we block on stdin —
+// a classic deadlock, reachable on large ingest prompts / verbose output.
+fn run_with_timeout(
+    mut child: Child,
+    prompt: Vec<u8>,
+    timeout: Duration,
+) -> Result<CliResult, String> {
+    let stdin = child.stdin.take();
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+
+    let stdin_handle = std::thread::spawn(move || {
+        if let Some(mut si) = stdin {
+            let _ = si.write_all(&prompt);
+            // Dropping `si` closes the pipe so the child sees EOF on stdin.
+        }
+    });
+    let stdout_handle = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(mut so) = stdout {
+            let _ = so.read_to_end(&mut buf);
+        }
+        buf
+    });
+    let stderr_handle = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(mut se) = stderr {
+            let _ = se.read_to_end(&mut buf);
+        }
+        buf
+    });
+
+    let start = std::time::Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(st)) => break st,
+            Ok(None) => {
+                if start.elapsed() >= timeout {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    let _ = stdin_handle.join();
+                    let _ = stdout_handle.join();
+                    let _ = stderr_handle.join();
+                    return Err(format!("claude CLI timed out after {}s", timeout.as_secs()));
+                }
+                std::thread::sleep(Duration::from_millis(80));
+            }
+            Err(e) => return Err(format!("try_wait failed: {e}")),
+        }
+    };
+
+    let _ = stdin_handle.join();
+    let stdout = stdout_handle.join().unwrap_or_default();
+    let stderr = stderr_handle.join().unwrap_or_default();
+    Ok(CliResult {
+        stdout: String::from_utf8_lossy(&stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&stderr).into_owned(),
+        status: status.code().unwrap_or(-1),
+    })
 }
 
 #[cfg(test)]

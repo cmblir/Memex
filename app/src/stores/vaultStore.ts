@@ -4,6 +4,7 @@
 import { create } from "zustand";
 import { ipc } from "../lib/ipc";
 import type { Adjacency, FileContent, FileNode, VaultMeta } from "../lib/ipc";
+import { useUIStore } from "./uiStore";
 
 const LAST_VAULT_KEY = "memex.lastVaultPath";
 
@@ -162,10 +163,22 @@ export const useVaultStore = create<VaultState>((set, get) => ({
   renamePath: async (from: string, toName: string) => {
     try {
       const newPath = await ipc.renamePath(from, toName);
+      // Rewrite the open file's path for an exact match AND for descendants
+      // (renaming a parent folder of the open file), mirroring deletePath.
       const active = get().activeFile;
-      if (active?.path === from) {
-        set({ activeFile: { ...active, path: newPath } });
+      if (active) {
+        let rewritten: string | null = null;
+        if (active.path === from) rewritten = newPath;
+        else if (active.path.startsWith(`${from}/`))
+          rewritten = newPath + active.path.slice(from.length);
+        if (rewritten) set({ activeFile: { ...active, path: rewritten } });
       }
+      // Keep the open route in sync so autosave/navigation target the new path.
+      const ui = useUIStore.getState();
+      const oldRoute = `page:${from}`;
+      if (ui.route === oldRoute) ui.setRoute(`page:${newPath}`);
+      else if (ui.route.startsWith(`${oldRoute}/`))
+        ui.setRoute(`page:${newPath}${ui.route.slice(oldRoute.length)}`);
       await get().refreshTree();
       void get().refreshLinkGraph();
       return newPath;

@@ -221,12 +221,33 @@ function SettingsAccount({ t }: { t: Strings }): JSX.Element {
 
 function useEnabledProviders(): ProviderDef[] {
   const settings = useSettingsStore((s) => s.settings);
+  // Ollama is selectable whenever the daemon is live with models installed —
+  // not only after a model was pulled from inside Memex. This keeps the Model
+  // tab consistent with the "connected" chip on the Providers tab.
+  const [ollamaLive, setOllamaLive] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    ipc
+      .ollamaStatus()
+      .then((s) => {
+        if (alive) setOllamaLive(s.daemon_running && s.models.length > 0);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
   return useMemo(() => {
     if (!settings) return [PROVIDERS[0]];
     // Connected providers only — disconnected ones must not appear in the
-    // model picker.
-    return PROVIDERS.filter((p) => settings.providers[p.flag] === true);
-  }, [settings]);
+    // model picker. Ollama is shown when its daemon is detected live, even
+    // before the user explicitly connects it.
+    return PROVIDERS.filter((p) => {
+      if (p.id === "ollama")
+        return ollamaLive || settings.providers.ollama === true;
+      return settings.providers[p.flag] === true;
+    });
+  }, [settings, ollamaLive]);
 }
 
 function SettingsModel({ t }: { t: Strings }): JSX.Element {
@@ -378,6 +399,7 @@ function ModelPicker({
 function SettingsProviders({ t }: { t: Strings }): JSX.Element {
   const settings = useSettingsStore((s) => s.settings);
   const setProviderConnected = useSettingsStore((s) => s.setProviderConnected);
+  const update = useSettingsStore((s) => s.update);
   const [keyInputOpen, setKeyInputOpen] = useState<string | null>(null);
   const [keyVal, setKeyVal] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
@@ -465,30 +487,24 @@ function SettingsProviders({ t }: { t: Strings }): JSX.Element {
       await ipc.deleteProviderKey(providerId);
       const def = PROVIDERS.find((p) => p.id === providerId);
       if (def?.flag) await setProviderConnected(def.flag, false);
+      // If Query/Ingest were pointed at this provider, reset them to the
+      // always-available CLI so the picker and the actual dispatch target stay
+      // in sync (otherwise a request would fail on the just-removed key).
+      const patch: Partial<MemexSettings> = {};
+      if (settings?.query_provider === providerId) {
+        patch.query_provider = "anthropic-cli";
+        patch.query_model = "claude-sonnet-4-6";
+      }
+      if (settings?.ingest_provider === providerId) {
+        patch.ingest_provider = "anthropic-cli";
+        patch.ingest_model = "claude-sonnet-4-6";
+      }
+      if (Object.keys(patch).length > 0) await update(patch);
     } catch (e) {
       window.alert(String(e));
     } finally {
       setBusy(null);
     }
-  }
-
-  async function toggleLocal(providerId: string): Promise<void> {
-    const def = PROVIDERS.find((p) => p.id === providerId);
-    if (!def || !def.flag) return;
-    const next = !(settings?.providers[def.flag] ?? false);
-    if (next && providerId === "ollama") {
-      // Ping ollama to verify
-      setBusy(providerId);
-      try {
-        await ipc.listProviderModels(providerId);
-      } catch (e) {
-        window.alert(`Ollama not reachable: ${String(e)}`);
-        setBusy(null);
-        return;
-      }
-      setBusy(null);
-    }
-    await setProviderConnected(def.flag, next);
   }
 
   return (
@@ -705,15 +721,7 @@ function SettingsProviders({ t }: { t: Strings }): JSX.Element {
                       {t.s_provider_connect}
                     </button>
                   )
-                ) : (
-                  <button
-                    className={"btn" + (connected ? "" : " btn-primary")}
-                    onClick={() => void toggleLocal(p.id)}
-                    disabled={busy === p.id}
-                  >
-                    {connected ? t.s_provider_disconnect : t.s_provider_connect}
-                  </button>
-                )}
+                ) : null}
               </div>
             </div>
           );

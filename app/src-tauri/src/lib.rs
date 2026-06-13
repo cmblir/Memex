@@ -11,6 +11,7 @@ pub mod ollama;
 pub mod parser;
 pub mod provenance;
 pub mod providers;
+pub mod sample_vault;
 pub mod secrets;
 pub mod settings;
 pub mod vault;
@@ -24,6 +25,7 @@ pub fn run() {
             commands::list_files,
             commands::file_mtimes,
             commands::read_file,
+            commands::read_vault_context,
             commands::write_file,
             commands::read_external_text,
             commands::create_file,

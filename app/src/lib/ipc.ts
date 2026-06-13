@@ -121,6 +121,8 @@ export const ipc = {
   fileMtimes: (root: string) =>
     invoke<[string, number][]>("file_mtimes", { root }),
   readFile: (path: string) => invoke<FileContent>("read_file", { path }),
+  readVaultContext: (root: string, maxBytes: number) =>
+    invoke<string>("read_vault_context", { root, maxBytes }),
   writeFile: (path: string, content: string) =>
     invoke<null>("write_file", { path, content }),
   readExternalText: (path: string) =>
