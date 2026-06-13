@@ -156,6 +156,14 @@ export const useIngestStore = create<IngestState>((set, get) => ({
       await ipc.writeFile(`${vault.path}/raw/${slug}.md`, payload);
       await useVaultStore.getState().refreshTree();
 
+      // Snapshot wiki/ mtimes before the model runs so we can verify it
+      // actually wrote something, rather than reporting success for a no-op.
+      const wikiBefore = new Map(
+        (await ipc.fileMtimes(vault.path).catch(() => []))
+          .filter(([p]) => p.includes("/wiki/"))
+          .map(([p, m]) => [p, m] as const),
+      );
+
       set({ stage: "claude" });
       const settings = await ipc.getSettings();
       const prompt = INGEST_PROMPT(slug, finalTitle);
@@ -181,9 +189,37 @@ export const useIngestStore = create<IngestState>((set, get) => ({
       await useVaultStore.getState().refreshTree();
       await useVaultStore.getState().refreshLinkGraph();
 
-      const today = new Date().toISOString().slice(0, 10);
+      // Verify the wiki changed: a new wiki page appeared or an existing one
+      // was modified. If nothing changed, the model replied but did not ingest.
+      const afterMtimes = await ipc.fileMtimes(vault.path).catch(() => []);
+      const wikiChanged = afterMtimes.some(
+        ([p, m]) =>
+          p.includes("/wiki/") &&
+          (!wikiBefore.has(p) || m > (wikiBefore.get(p) ?? 0)),
+      );
+      if (!wikiChanged) {
+        set((st) => ({
+          finishedAt: Date.now(),
+          stage: "error",
+          seen: false,
+          log:
+            `${st.log}\n\nWARNING: the model finished but no wiki pages were ` +
+            `created or updated. The source was saved to raw/${slug}.md, but ` +
+            `nothing was ingested into the wiki. Check the model output above, ` +
+            `or try the Claude Code (CLI) provider.`,
+        }));
+        return;
+      }
+
+      // Open the report the model actually wrote (newest matching file),
+      // instead of guessing the filename from today's date.
+      const report = afterMtimes
+        .filter(
+          ([p]) => p.includes("/ingest-reports/") && p.endsWith(`-${slug}.md`),
+        )
+        .sort((a, b) => b[1] - a[1])[0];
       set({
-        reportPath: `${vault.path}/ingest-reports/${today}-${slug}.md`,
+        reportPath: report ? report[0] : null,
         finishedAt: Date.now(),
         stage: "done",
         seen: false,
