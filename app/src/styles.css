@@ -1278,6 +1278,38 @@ hr {
   text-align: center;
 }
 
+/* three.js WebGL canvas + CSS2D label layer fill the graph-canvas container. */
+.graph-canvas-3d {
+  display: block;
+  width: 100%;
+  height: 100%;
+  outline: none;
+  touch-action: none;
+}
+.graph-labels-3d {
+  overflow: hidden;
+}
+.graph-label-3d {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  /* CSS2DObject centres the div on the star; lift it just above the core and
+     keep it legible over the glow with a soft dark halo. */
+  transform: translateY(-12px);
+  text-shadow:
+    0 0 3px rgba(0, 0, 0, 0.85),
+    0 0 6px rgba(0, 0, 0, 0.6);
+  user-select: none;
+}
+/* Suspense fallback while the 3D graph chunk loads — matches the deep-space wrap. */
+.graph-loading {
+  flex: 1;
+  min-height: 540px;
+  background: var(--bg);
+}
+
 /* Right-side drawer */
 .graph-drawer {
   width: 280px;

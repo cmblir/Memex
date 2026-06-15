@@ -51,7 +51,7 @@ Settings → Account.
 | Lint | "Run lint" in Provenance shells the CLAUDE.md checklist (structure / citation / connection / freshness) to the active model and renders a Markdown report. The run lives in a global store — navigate freely while it works; a Topbar chip tracks it and flips to done/failed until you return |
 | Provenance | Per-page citation coverage (claim lines vs cited claims); sort by lowest coverage, slider threshold flags below-target pages |
 | History | Lists the WHY report each ingest files under `ingest-reports/`, newest first, with an expandable in-place markdown preview and an open-in-reader jump |
-| Graph | Full vault link graph rendered with **sigma.js** (WebGL) over a **d3-force** layout (the same force family Obsidian uses: link + many-body + x/y + collision), with degree-normalised link strength so leaves hug their hub and clusters drift into separated "dandelions". Every note shows, including link-less orphans. Layout runs once then rests (no idle CPU); **dragging a node re-heats the sim** so neighbours follow and it springs back on release. Right-side drawer mirrors Obsidian's panel: Filters (search, tags, folder, orphans, existing-only), Display (arrows, text fade, node size, link thickness, ▶ play), Forces (center, repel, link, link-distance) each driving a real d3-force param. Hover spotlights the 1-hop neighbourhood, click opens the file. **▶ Timelapse** reveals notes oldest-to-newest by mtime at their settled positions (edges appear as nodes connect) — a zero-physics reveal, smooth at any size, camera fixed. Drawer + slider state persists to localStorage |
+| Graph | Full vault link graph rendered as a **3D universe** with **three.js** (WebGL) over a **d3-force-3d** layout (the same force family Obsidian uses: link + many-body + x/y/z + collision), with degree-normalised link strength so leaves hug their hub and clusters drift into separated "dandelions". Glowing star nodes (UnrealBloom + depth fog + drifting starfield), faint filament edges, every note shown including link-less orphans. **Drag to orbit**, scroll to zoom, slow idle auto-rotate; **grabbing a star re-heats the sim** so neighbours follow in 3D and it springs back on release. Right-side drawer mirrors Obsidian's panel: Filters (search, tags, folder, orphans, existing-only), Display (arrows, text fade, node size, link thickness, **brightness**, ▶ play), Forces (center, repel, link, link-distance) each driving a real d3-force-3d param. Hover spotlights the 1-hop neighbourhood, click opens the file. **▶ Timelapse** replays the vault oldest-to-newest by mtime with **live 3D physics** — each star spawns at the hub and shoves its placed neighbours aside as it arrives. The tree + graph **auto-refresh** on external file changes (Obsidian/Finder, finished ingest); drawer + slider state persists to localStorage |
 
 ### Model connections
 
@@ -150,7 +150,7 @@ app/
 │   │   ├── PageOverview.tsx   # stats + recent git
 │   │   ├── PageIngest.tsx     # drop → raw/ → model → wiki
 │   │   ├── PageQuery.tsx      # ask the wiki (with cite expansion)
-│   │   ├── PageGraph.tsx      # sigma.js (WebGL) + d3-force (drag re-heats; timelapse reveal)
+│   │   ├── PageGraph.tsx      # 3D graph orchestrator (lib/graphScene three.js + lib/graphSim d3-force-3d)
 │   │   ├── components/GraphControls.tsx  # right-side settings drawer (Filters/Display/Forces)
 │   │   ├── PageHistory.tsx    # git log
 │   │   ├── PageProvenance.tsx # citation coverage + lint

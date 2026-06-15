@@ -163,9 +163,9 @@ A chat surface that answers questions about your wiki. The active **query model*
 
 ### Graph
 
-Full vault link graph rendered with **sigma.js** (WebGL) over a **d3-force** layout — the same force family Obsidian uses (`forceLink` + `forceManyBody` + `forceX/Y` + collision), with each link's strength normalised by node degree so leaves hug their hub and clusters drift apart into separated radial "dandelions". Nodes are files, edges are `[[wikilinks]]`; hubs grow with link count, edges stay faint so the nodes carry the structure, and labels fade in hub-first as you zoom — just like Obsidian. **Every note can be shown, including link-less orphans** (toggle *Show orphans* in the drawer).
+Full vault link graph rendered as a **3D universe** with **three.js** (WebGL) over a **d3-force-3d** layout — the same force family Obsidian uses (`forceLink` + `forceManyBody` + `forceX/Y/Z` + collision), with each link's strength normalised by node degree so leaves hug their hub and clusters drift apart into separated radial "dandelions". Nodes are glowing stars, edges are `[[wikilinks]]` drawn as faint filaments; hubs grow with link count, and labels fade in hub-first as you orbit closer — just like Obsidian. **Every note can be shown, including link-less orphans** (toggle *Show orphans* in the drawer).
 
-The layout runs once and then rests (no idle CPU). **Drag a node and the simulation re-heats** — its neighbours follow and, on release, it springs back to its resting place, just like Obsidian. Idle stays physics-free, so it's light enough for large vaults.
+**Drag to orbit** the camera around the cluster and scroll to zoom; the galaxy idles with a slow auto-rotate. **Grab a star and the simulation re-heats** — its neighbours follow in 3D and it springs back on release. Glowing nodes (UnrealBloom), depth fog and a drifting starfield sell the deep-space look, and a **Brightness** slider in the drawer tunes the glow. The file tree and graph **auto-refresh** when files change outside the app (edits in Obsidian/Finder, or a finished ingest).
 
 A right-side settings drawer (gear icon) mirrors Obsidian's panel:
 

@@ -20,6 +20,7 @@ export interface GraphSettings {
   textFadeThreshold: number; // zoom level at which labels appear (0.1..3)
   nodeSize: number; // multiplier 0.5..3
   linkThickness: number; // 0.3..3
+  brightness: number; // 0.2..2.5 — scene exposure + bloom strength (light intensity)
 
   // Forces — names and ranges mirror Obsidian's `ForceOptions`.
   centerForce: number; // 0..1 — center pull strength (Obsidian: centerStrength)
@@ -47,6 +48,7 @@ export const DEFAULT_GRAPH_SETTINGS: GraphSettings = {
   textFadeThreshold: 1.1,
   nodeSize: 1,
   linkThickness: 1,
+  brightness: 1,
   // Obsidian's real defaults (obsidian-extended-graph EngineOptions):
   // centerStrength ≈0.52, repelStrength 10, linkStrength 1, linkDistance 250.
   // linkDistance 250 (NOT 30, which is Obsidian's slider MINIMUM) is what
@@ -63,7 +65,7 @@ export const DEFAULT_GRAPH_SETTINGS: GraphSettings = {
 // the disk with the clusters instead of letting them settle into faint
 // concentric shells (the leftover "ring" artifact). Bumping resets
 // persisted slider values.
-const KEY = "memex.graph.settings.v20";
+const KEY = "memex.graph.settings.v21";
 
 export function loadGraphSettings(): GraphSettings {
   try {

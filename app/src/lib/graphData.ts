@@ -171,10 +171,12 @@ export interface BuildGraphOpts {
 }
 
 
-// Deterministic pseudo-random scatter for seed positions. Math.random is
-// unavailable in some sandboxed contexts and would make runs non-reproducible,
-// so we hash the id. Nodes must NOT start at 0,0 or the sim explodes.
-function seededXY(id: string, i: number): { x: number; y: number } {
+// Deterministic pseudo-random scatter for seed positions on a SPHERE SHELL —
+// the 3D analogue of the old ring scatter. Math.random is unavailable in some
+// sandboxed contexts and would make runs non-reproducible, so we hash the id.
+// Nodes must NOT start at 0,0,0 or the sim explodes; the shell also gives the
+// d3-force-3d layout an immediate volumetric spread to relax from.
+function seededXYZ(id: string, i: number): { x: number; y: number; z: number } {
   let h = 2166136261;
   for (let k = 0; k < id.length; k++) {
     h ^= id.charCodeAt(k);
@@ -182,15 +184,23 @@ function seededXY(id: string, i: number): { x: number; y: number } {
   }
   const a = ((h >>> 0) % 1000) / 1000;
   const b = (((h >>> 0) * 2654435761) % 1000) / 1000;
+  const c = (((h >>> 0) * 40503) % 997) / 997;
   const r = 300 + a * 300;
-  const theta = b * Math.PI * 2 + i * 0.0001;
-  return { x: Math.cos(theta) * r, y: Math.sin(theta) * r };
+  const theta = b * Math.PI * 2 + i * 0.0001; // azimuth
+  const phi = Math.acos(2 * c - 1); // polar angle — uniform over the sphere
+  const sinPhi = Math.sin(phi);
+  return {
+    x: Math.cos(theta) * r * sinPhi,
+    y: Math.sin(theta) * r * sinPhi,
+    z: Math.cos(phi) * r,
+  };
 }
 
 export interface GraphNodeAttrs {
   label: string;
   x: number;
   y: number;
+  z: number;
   deg: number;
   size: number;
   color: string;
@@ -212,11 +222,12 @@ export function buildGraph(
   const ensure = (id: string): void => {
     if (g.hasNode(id)) return;
     const i = g.order;
-    const { x, y } = seededXY(id, i);
+    const { x, y, z } = seededXYZ(id, i);
     g.addNode(id, {
       label: stem(id),
       x,
       y,
+      z,
       deg: 0,
       size: 2, // real size + colour set once degree is known
       color: o.starDim,

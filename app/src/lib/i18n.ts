@@ -106,6 +106,7 @@ export interface Strings {
   gr_text_fade: string;
   gr_node_size: string;
   gr_link_thickness: string;
+  gr_brightness: string;
   gr_center_force: string;
   gr_repel_force: string;
   gr_link_force: string;
@@ -280,6 +281,7 @@ export const STRINGS: Record<Lang, Strings> = {
     gr_text_fade: "Text fade threshold",
     gr_node_size: "Node size",
     gr_link_thickness: "Link thickness",
+    gr_brightness: "Brightness",
     gr_center_force: "Center force",
     gr_repel_force: "Repel force",
     gr_link_force: "Link force",
@@ -463,6 +465,7 @@ export const STRINGS: Record<Lang, Strings> = {
     gr_text_fade: "라벨 페이드 임계",
     gr_node_size: "노드 크기",
     gr_link_thickness: "링크 두께",
+    gr_brightness: "밝기",
     gr_center_force: "중심력",
     gr_repel_force: "반발력",
     gr_link_force: "링크 장력",
@@ -646,6 +649,7 @@ export const STRINGS: Record<Lang, Strings> = {
     gr_text_fade: "ラベルフェード閾値",
     gr_node_size: "ノードサイズ",
     gr_link_thickness: "リンク太さ",
+    gr_brightness: "明るさ",
     gr_center_force: "中心力",
     gr_repel_force: "反発力",
     gr_link_force: "リンク張力",

@@ -1,44 +1,51 @@
-// d3-force simulation over a graphology graph. Mirrors the Obsidian force
-// mapping the cytoscape port arrived at: uncapped Barnes-Hut repulsion, long
-// links, gentle center gravity, and per-link degree normalization
-// (linkStrength = slider / (1 + min(deg))) — the rule that turns a hairball
-// into separated radial "dandelions".
+// d3-force-3d simulation over a graphology graph — the 3D port of the original
+// 2D graphSim. Same Obsidian-derived force mapping (uncapped Barnes-Hut
+// repulsion, long links, gentle center gravity, per-link degree normalization
+// that turns a hairball into separated radial "dandelions"), now run in three
+// dimensions so the galaxy has real volume. The public API is unchanged from
+// the 2D version (reheat / update / timelapse* / liveAdd / stop) so PageGraph's
+// drag, timelapse and live-ingest orchestration ports verbatim.
 import {
   forceSimulation,
   forceLink,
   forceManyBody,
   forceX,
   forceY,
+  forceZ,
   forceCollide,
   type Simulation,
-} from "d3-force";
+} from "d3-force-3d";
 import type { GraphSettings } from "./graphSettings";
 import type { VaultGraph } from "./graphData";
 
-// Mutated in place by d3 (it also adds vx/vy/index at runtime). x/y are seeded
-// from the graph before the sim runs, so they are always present.
+// Mutated in place by d3 (it also adds vx/vy/vz/index at runtime). x/y/z are
+// seeded from the graph before the sim runs, so they are always present.
 export interface SimNode {
   id: string;
   x: number;
   y: number;
+  z: number;
   size: number;
   deg: number;
   fx?: number | null;
   fy?: number | null;
+  fz?: number | null;
   // Velocities — d3 owns these at runtime; we zero them when (re)spawning a
   // node at the centre during the timelapse.
   vx?: number;
   vy?: number;
+  vz?: number;
 }
 interface SimLink {
   source: SimNode | string;
   target: SimNode | string;
 }
 
-// Galaxy: uniform per-node repulsion + uniform gravity gives one cohesive disk
-// with a dense core that fades to a sparse star halo (not separated clusters).
+// Galaxy: uniform per-node repulsion + uniform gravity gives one cohesive
+// volume with a dense core that fades to a sparse star halo (not separated
+// clusters).
 const REPEL_SCALE = 9; // slider 10 → charge -90 (uncapped, Barnes-Hut)
-const CENTER_SCALE = 0.13; // slider 0.5 → x/y strength ≈0.065 (clusters spread, stay cohesive)
+const CENTER_SCALE = 0.13; // slider 0.5 → x/y/z strength ≈0.065 (cohesive)
 
 export interface GraphSim {
   nodes: SimNode[];
@@ -58,7 +65,7 @@ export interface GraphSim {
   // Reveal is done — let the live galaxy cool to rest.
   timelapseSettle(): void;
   // Mid-flight injection for the live-ingest view: add brand-new nodes (their
-  // x/y/size/deg already written to the graph) and new links between any two
+  // x/y/z/size/deg already written to the graph) and new links between any two
   // known nodes, then gently reheat so newcomers tug into place without
   // exploding the settled layout.
   liveAdd(newIds: string[], newEdges: [string, string][]): void;
@@ -77,6 +84,7 @@ export function createSim(
     id,
     x: a.x,
     y: a.y,
+    z: a.z,
     size: a.size,
     deg: a.deg,
   }));
@@ -117,12 +125,16 @@ export function createSim(
     .distanceMin(2); // distanceMax left at Infinity (uncapped)
   const xF = forceX<SimNode>(0).strength(centerOf(s));
   const yF = forceY<SimNode>(0).strength(centerOf(s));
+  const zF = forceZ<SimNode>(0).strength(centerOf(s));
 
-  const sim = forceSimulation<SimNode, SimLink>(nodes)
+  // numDimensions 3 — run the layout in full 3D (d3-force-3d default, set
+  // explicitly so the intent is clear and z is always integrated).
+  const sim = forceSimulation<SimNode, SimLink>(nodes, 3)
     .force("link", linkF)
     .force("charge", chargeF)
     .force("x", xF)
     .force("y", yF)
+    .force("z", zF)
     .force(
       "collide",
       forceCollide<SimNode>((n) => n.size / 2 + 1.5)
@@ -156,6 +168,7 @@ export function createSim(
       chargeF.strength(() => -next.repelForce * REPEL_SCALE);
       xF.strength(centerOf(next));
       yF.strength(centerOf(next));
+      zF.strength(centerOf(next));
       if (tlActive) {
         // A timelapse keeps the sim hot (alphaTarget 0.1); don't reset the
         // target to 0 or the galaxy cools between reveal batches. Just nudge
@@ -177,20 +190,25 @@ export function createSim(
       for (const id of ids) {
         const n = byId.get(id);
         if (!n || activeIds.has(id)) continue;
-        // Spawn at the centre (tiny jitter so a cohort doesn't perfectly stack)
-        // with zero velocity — the live charge force flings it outward, which
-        // is what shoves the already-placed neighbours aside.
-        const a = Math.random() * Math.PI * 2;
+        // Spawn near the centre on a tiny sphere (so a cohort doesn't perfectly
+        // stack) with zero velocity — the live charge force flings it outward,
+        // which is what shoves the already-placed neighbours aside.
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.acos(2 * Math.random() - 1);
         const r = Math.random() * 6;
-        n.x = Math.cos(a) * r;
-        n.y = Math.sin(a) * r;
+        const sinPhi = Math.sin(phi);
+        n.x = Math.cos(theta) * r * sinPhi;
+        n.y = Math.sin(theta) * r * sinPhi;
+        n.z = Math.cos(phi) * r;
         n.vx = 0;
         n.vy = 0;
+        n.vz = 0;
         n.fx = null;
         n.fy = null;
+        n.fz = null;
         // Seed the rendered position now so the node doesn't flash at its old
         // settled spot for a frame before the first tick moves it.
-        graph.mergeNodeAttributes(id, { x: n.x, y: n.y });
+        graph.mergeNodeAttributes(id, { x: n.x, y: n.y, z: n.z });
         activeIds.add(id);
         tlActive.push(n);
         for (const l of linksByNode.get(id) ?? []) {
@@ -215,10 +233,12 @@ export function createSim(
           id,
           x: a.x,
           y: a.y,
+          z: a.z,
           size: a.size,
           deg: a.deg,
           vx: 0,
           vy: 0,
+          vz: 0,
         };
         nodes.push(n);
         byId.set(id, n);

@@ -1,15 +1,14 @@
-// Graph page — Obsidian-style interactive force-directed graph of the vault.
-// d3-force (lib/graphSim) runs the layout — the same family of forces Obsidian
-// uses, including the degree-normalized link strength that produces separated
-// radial "dandelion" clusters. sigma.js renders it on the GPU: sigma honours
-// edge alpha (so edges stay faint instead of the bright hairball cytoscape's
-// WebGL renderer produced) and drives label visibility off rendered node size,
-// so the overview shows no labels and hubs label first as you zoom in.
+// Graph page — a 3D "universe" force-directed graph of the vault. d3-force-3d
+// (lib/graphSim) runs the same Obsidian-style layout the 2D view used — now in
+// three dimensions — and lib/graphScene renders it with three.js: glowing star
+// nodes, faint filament edges, a starfield, depth fog and UnrealBloom, with
+// OrbitControls for real z-axis orbit and idle auto-rotate. This file stays a
+// thin React orchestrator: build/settle, drag, hover, timelapse, live-ingest
+// glow and WebGL context-loss recovery — all driving the imperative GraphScene
+// API instead of sigma.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { JSX } from "react";
-import Sigma from "sigma";
-import { fitViewportToNodes } from "@sigma/utils";
 import GraphControls from "../components/GraphControls";
 import {
   DEFAULT_GRAPH_SETTINGS,
@@ -28,11 +27,8 @@ import {
   type VaultGraph,
 } from "../lib/graphData";
 import { createSim, type GraphSim, type SimNode } from "../lib/graphSim";
-import {
-  readTheme,
-  buildSigmaSettings,
-  nodeProgramSettings,
-} from "../lib/graphTheme";
+import { readTheme } from "../lib/graphTheme";
+import { GraphScene, type SceneStyleState } from "../lib/graphScene";
 import type { Strings } from "../lib/i18n";
 import { useUIStore } from "../stores/uiStore";
 import { useVaultStore } from "../stores/vaultStore";
@@ -43,8 +39,6 @@ import type { Adjacency } from "../lib/ipc";
 // Live-ingest node tints — pages the in-flight run wrote glow gold, pages it
 // only read glow ice blue. Both sit inside the cosmic palette so they read as
 // "hot" stars rather than UI chrome.
-const INGEST_WRITE_COLOR = "#ffd27a";
-const INGEST_READ_COLOR = "#7fe1ff";
 const PULSE_MS = 900;
 
 interface IngestGlow {
@@ -62,16 +56,19 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
   const uiTheme = useUIStore((s) => s.theme);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const sigmaRef = useRef<Sigma | null>(null);
+  const sceneRef = useRef<GraphScene | null>(null);
   const simRef = useRef<GraphSim | null>(null);
+  const graphRef = useRef<VaultGraph | null>(null);
   const settingsRef = useRef<GraphSettings>(DEFAULT_GRAPH_SETTINGS);
   const tlRafRef = useRef<number | null>(null);
   // Markdown paths sorted oldest→newest by mtime — the order nodes pop in
   // during the timelapse.
   const tlOrderRef = useRef<string[]>([]);
-  // Live-ingest glow state. A ref (not state) so the nodeReducer closure in
-  // the build effect always sees the current value without rebuilding the
-  // renderer on every streamed event.
+  // Hover neighbourhood + live-ingest glow are composed into one SceneStyleState
+  // and pushed to the scene. Refs (not state) so handlers never rebuild the scene.
+  const hoverRef = useRef<{ node: string | null; neighbors: Set<string> | null }>(
+    { node: null, neighbors: null },
+  );
   const ingestGlowRef = useRef<IngestGlow>({
     tint: new Map(),
     pulseId: null,
@@ -84,14 +81,29 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
   );
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [tlPlaying, setTlPlaying] = useState(false);
-  // Bumped on webglcontextrestored to force a clean renderer rebuild (sigma has
-  // no built-in GL-context recovery; WKWebView drops the context on backgrounding).
+  // Bumped on webglcontextrestored to force a clean scene rebuild (WKWebView
+  // drops the GL context on backgrounding; three.js does not auto-restore the
+  // composer/render targets, so we tear down and rebuild a fresh GraphScene).
   const [glEpoch, setGlEpoch] = useState(0);
   const [counts, setCounts] = useState<{ nodes: number; edges: number }>({
     nodes: 0,
     edges: 0,
   });
   settingsRef.current = settings;
+
+  // Compose hover + ingest state into the scene's style and push it.
+  const pushStyle = useRef(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    const state: SceneStyleState = {
+      hoveredNode: hoverRef.current.node,
+      neighbors: hoverRef.current.neighbors,
+      tints: ingestGlowRef.current.tint,
+      pulseId: ingestGlowRef.current.pulseId,
+      pulseScale: ingestGlowRef.current.pulseScale,
+    };
+    scene.setStyleState(state);
+  }).current;
 
   useEffect(() => {
     saveGraphSettings(settings);
@@ -103,7 +115,7 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
     [adjacency, currentVault?.path],
   );
   // Every markdown file — including link-less ones, which render as Obsidian's
-  // free-floating "orphan" dots.
+  // free-floating "orphan" stars.
   const allFiles = useMemo(() => flattenMarkdown(fileTree), [fileTree]);
 
   // Fetch mtimes whenever the vault changes — drives the timelapse reveal order
@@ -128,8 +140,7 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
   }, [currentVault?.path]);
 
   // Build + render + settle. Re-runs when the underlying graph or any FILTER
-  // changes (force-slider re-tuning is handled without a rebuild in a later
-  // step). Each run tears the old instance down and creates a fresh one.
+  // changes. Each run tears the old scene/sim down and creates a fresh one.
   useEffect(() => {
     const container = containerRef.current;
     if (!container || !adjacency) return;
@@ -149,205 +160,109 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
       starDim: theme.starDim,
       edgeColor: theme.edge,
     });
+    graphRef.current = graph;
     setCounts({ nodes: graph.order, edges: graph.size });
     if (graph.order === 0) return;
 
-    const renderer = new Sigma(graph, container, {
-      ...buildSigmaSettings(theme, s),
-      // Glow program registered here ONLY — never via the setSettings updates.
-      ...nodeProgramSettings(),
-    });
-    sigmaRef.current = renderer;
+    // Reset transient style for the fresh scene.
+    hoverRef.current = { node: null, neighbors: null };
 
-    // DEV-ONLY: expose the renderer/graph so the screenshot harness can locate
-    // a node's screen position and drive a real drag for the README graph GIF.
-    // Stripped from production builds (import.meta.env.DEV === false).
+    let killed = false;
+    let userTookOver = false;
+
+    const highlight = (node: string): void => {
+      const neighbors = new Set(graph.neighbors(node));
+      neighbors.add(node);
+      hoverRef.current = { node, neighbors };
+      pushStyle();
+    };
+    const clearHighlight = (): void => {
+      hoverRef.current = { node: null, neighbors: null };
+      pushStyle();
+    };
+
+    let draggedSim: SimNode | undefined;
+
+    const scene = new GraphScene(container, graph, theme, s, {
+      onNodeClick: (id) => {
+        if (!killed) setRoute(`page:${id}`);
+      },
+      onNodeHover: (id) => {
+        if (id) highlight(id);
+        else clearHighlight();
+      },
+      onDragStart: (id) => {
+        draggedSim = simRef.current?.nodes.find((n) => n.id === id);
+        highlight(id);
+        if (draggedSim) {
+          draggedSim.fx = draggedSim.x;
+          draggedSim.fy = draggedSim.y;
+          draggedSim.fz = draggedSim.z;
+        }
+        simRef.current?.reheat(0.3);
+      },
+      onDrag: (id, x, y, z) => {
+        if (draggedSim) {
+          draggedSim.fx = x;
+          draggedSim.fy = y;
+          draggedSim.fz = z;
+        }
+        graph.mergeNodeAttributes(id, { x, y, z });
+        sceneRef.current?.syncPositions();
+      },
+      onDragEnd: () => {
+        if (draggedSim) {
+          draggedSim.fx = null;
+          draggedSim.fy = null;
+          draggedSim.fz = null;
+        }
+        draggedSim = undefined;
+        clearHighlight();
+        // Reheat so the released star and its neighbours ease back to rest.
+        simRef.current?.reheat(0.3);
+      },
+      onContextRestored: () => setGlEpoch((n) => n + 1),
+    });
+    sceneRef.current = scene;
+    scene.start();
+
+    // DEV-ONLY: expose the scene/graph so a screenshot harness can drive it.
     if (import.meta.env.DEV) {
-      (
-        window as unknown as { __graphDev?: unknown }
-      ).__graphDev = {
-        renderer,
+      (window as unknown as { __graphDev?: unknown }).__graphDev = {
+        scene,
         graph,
         rect: () => container.getBoundingClientRect(),
       };
     }
 
-    // WKWebView drops the WebGL context when backgrounded / under memory
-    // pressure, leaving a blank canvas. sigma has no recovery, so on restore we
-    // bump glEpoch → this effect tears down and rebuilds a fresh renderer.
-    const canvases = Object.values(renderer.getCanvases());
-    const onCtxLost = (e: Event): void => e.preventDefault();
-    const onCtxRestored = (): void => setGlEpoch((n) => n + 1);
-    for (const cv of canvases) {
-      cv.addEventListener("webglcontextlost", onCtxLost);
-      cv.addEventListener("webglcontextrestored", onCtxRestored);
-    }
-
-    // Only a precise click (no drag movement) opens the page — dragging a node
-    // must not navigate.
-    let dragMoved = false;
-    renderer.on("clickNode", ({ node }) => {
-      if (!dragMoved) setRoute(`page:${node}`);
-    });
-
-    // Hover: brighten the hovered node's closed neighbourhood, dim the rest —
-    // Obsidian dims non-neighbours rather than erasing them, so context stays.
-    let hoveredNode: string | undefined;
-    let hoveredNeighbors: Set<string> | undefined;
-    // Drag state declared up here so the hover handlers can defer to it: while a
-    // node is dragged the highlight stays locked to it. The cursor slides off
-    // the node's disc during the drag, which would otherwise fire leaveNode (or
-    // enterNode on a node passed over) and drop / reassign the dimming.
-    let draggedNode: string | null = null;
-    let draggedSim: SimNode | undefined;
-    const highlight = (node: string): void => {
-      hoveredNode = node;
-      hoveredNeighbors = new Set(graph.neighbors(node));
-      hoveredNeighbors.add(node);
-      renderer.refresh({ skipIndexation: true });
-    };
-    const clearHighlight = (): void => {
-      hoveredNode = undefined;
-      hoveredNeighbors = undefined;
-      renderer.refresh({ skipIndexation: true });
-    };
-    renderer.on("enterNode", ({ node }) => {
-      if (draggedNode) return;
-      highlight(node);
-    });
-    renderer.on("leaveNode", () => {
-      if (draggedNode) return;
-      clearHighlight();
-    });
-    renderer.setSetting("nodeReducer", (n, data) => {
-      // Live-ingest tint first: pages the running (or just-finished) ingest
-      // touched stay recoloured — written gold, read ice — and the most
-      // recently touched one pulses with a label flash. Hover logic then
-      // layers on top so dimming still works.
-      let d = data;
-      const glow = ingestGlowRef.current;
-      const written = glow.tint.get(n);
-      if (written !== undefined) {
-        d = {
-          ...d,
-          color: written ? INGEST_WRITE_COLOR : INGEST_READ_COLOR,
-          zIndex: 2,
-        };
-        if (glow.pulseId === n) {
-          d = { ...d, size: d.size * glow.pulseScale, forceLabel: true };
-        }
-      }
-      if (!hoveredNeighbors) return d;
-      // Only the hovered node shows a label — forcing every neighbour's label
-      // stacked them into an unreadable garble. Neighbours stay bright; the
-      // rest dim.
-      if (n === hoveredNode) {
-        // forceLabel only — NOT `highlighted`, which draws the white hover box
-        // + ring. User wants just the label text.
-        return { ...d, forceLabel: true, zIndex: 2 };
-      }
-      if (hoveredNeighbors.has(n)) return { ...d, label: "", zIndex: 1 };
-      return { ...d, color: theme.starDim, label: "", zIndex: 0 };
-    });
-    // Faint edges by default (Obsidian hairlines). On hover, the hovered star's
-    // links glow and the rest are hidden so its neighbourhood pops.
-    renderer.setSetting("edgeReducer", (e, data) => {
-      if (!hoveredNode) return data;
-      const [a, b] = graph.extremities(e);
-      return a === hoveredNode || b === hoveredNode
-        ? { ...data, color: theme.edgeHi, zIndex: 1 }
-        : { ...data, hidden: true };
-    });
-
-    // Node drag — Obsidian-style: pin the grabbed node (d3 fx/fy) and re-heat
-    // the sim so its neighbours follow, then release so it springs to rest.
-    // setCustomBBox freezes the camera so it doesn't pan while dragging.
-    renderer.on("downNode", ({ node }) => {
-      draggedNode = node;
-      dragMoved = false;
-      draggedSim = simRef.current?.nodes.find((n) => n.id === node);
-      // Dim the rest of the graph to the grabbed node's neighbourhood so the
-      // dragged star reads against a shaded background instead of other
-      // clusters' colours bleeding through as it passes over them.
-      highlight(node);
-      if (!renderer.getCustomBBox()) renderer.setCustomBBox(renderer.getBBox());
-      if (draggedSim) {
-        draggedSim.fx = draggedSim.x;
-        draggedSim.fy = draggedSim.y;
-      }
-      simRef.current?.reheat(0.3);
-    });
-    renderer.on("moveBody", ({ event }) => {
-      if (!draggedNode) return;
-      dragMoved = true;
-      const p = renderer.viewportToGraph(event);
-      graph.mergeNodeAttributes(draggedNode, { x: p.x, y: p.y });
-      if (draggedSim) {
-        draggedSim.fx = p.x;
-        draggedSim.fy = p.y;
-      }
-      event.preventSigmaDefault();
-      event.original.preventDefault();
-      event.original.stopPropagation();
-    });
-    const endDrag = (): void => {
-      if (!draggedNode) return; // upStage also fires on plain background clicks
-      if (draggedSim) {
-        draggedSim.fx = null;
-        draggedSim.fy = null;
-      }
-      draggedNode = null;
-      draggedSim = undefined;
-      renderer.setCustomBBox(null);
-      clearHighlight();
-      // Reheat so the released node and its neighbours ease back to rest — the
-      // sim has usually cooled to alphaMin by release, so alphaTarget(0) alone
-      // would leave everything frozen wherever the drag dropped it.
-      simRef.current?.reheat(0.3);
-    };
-    renderer.on("upNode", endDrag);
-    renderer.on("upStage", endDrag);
-
-    // A user wheel/drag hands the camera over so neither the tracking fit nor
-    // the final fit fights manual pan/zoom.
-    let userTookOver = false;
-    const takeOver = (): void => {
-      userTookOver = true;
-    };
-    container.addEventListener("wheel", takeOver, {
-      passive: true,
-      once: true,
-    });
-    container.addEventListener("pointerdown", takeOver, { once: true });
-
-    let killed = false;
     const sim = createSim(graph, s, (nodes) => {
-      // d3 mutated node x/y in place; write them back for sigma to render.
       for (const n of nodes)
-        graph.mergeNodeAttributes(n.id, { x: n.x, y: n.y });
-      renderer.refresh({ skipIndexation: true });
+        graph.mergeNodeAttributes(n.id, { x: n.x, y: n.y, z: n.z });
+      sceneRef.current?.syncPositions();
     });
     simRef.current = sim;
 
-    // Reveal early and track the layout with the camera as it settles, so the
-    // user watches it come alive (interactive from the first frame), then nail
-    // the final framing on settle.
-    const fit = (): void => {
-      if (!userTookOver && graph.order >= 2) {
-        void fitViewportToNodes(renderer, robustSubset(graph, graph.nodes()), {
-          animate: false,
-        });
-      }
+    // A user drag/zoom hands the camera over so the settle re-fit doesn't fight
+    // manual orbit.
+    const takeOver = (): void => {
+      userTookOver = true;
     };
-    const fitTimer = window.setInterval(fit, 400);
+    container.addEventListener("wheel", takeOver, { passive: true, once: true });
+    container.addEventListener("pointerdown", takeOver, { once: true });
+
+    // Track the layout with the camera as it settles — the seeded sphere is
+    // large, so without re-fitting the cluster shrinks to a speck while the
+    // camera stays far. Stops once the user orbits or the sim settles.
+    const fitTimer = window.setInterval(() => {
+      if (!killed && !userTookOver) sceneRef.current?.fit();
+    }, 450);
     const revealTimer = window.setTimeout(() => {
       if (!killed) container.classList.add("graph-ready");
     }, 300);
     const finalFit = (): void => {
       window.clearInterval(fitTimer);
       if (killed) return;
-      fit();
-      renderer.refresh();
+      if (!userTookOver) sceneRef.current?.fit();
       container.classList.add("graph-ready");
     };
     const revealSafety = window.setTimeout(finalFit, 12000);
@@ -361,11 +276,7 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
       window.clearInterval(fitTimer);
       window.clearTimeout(revealTimer);
       window.clearTimeout(revealSafety);
-      // Tear down any in-flight timelapse before the renderer/sim are killed.
-      // Otherwise its RAF loop survives the rebuild, runs against the freshly
-      // re-assigned sigmaRef/simRef, and calls setNodeAttribute() with node ids
-      // from the OLD graph — which throws NotFoundGraphError — and leaves the
-      // play button stuck "on".
+      // Tear down any in-flight timelapse before scene/sim die.
       if (tlRafRef.current != null) {
         cancelAnimationFrame(tlRafRef.current);
         tlRafRef.current = null;
@@ -373,14 +284,11 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
       setTlPlaying(false);
       container.removeEventListener("wheel", takeOver);
       container.removeEventListener("pointerdown", takeOver);
-      for (const cv of canvases) {
-        cv.removeEventListener("webglcontextlost", onCtxLost);
-        cv.removeEventListener("webglcontextrestored", onCtxRestored);
-      }
       sim.stop();
-      renderer.kill();
-      sigmaRef.current = null;
+      scene.dispose();
+      sceneRef.current = null;
       simRef.current = null;
+      graphRef.current = null;
       container.classList.remove("graph-ready");
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -410,29 +318,19 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
 
   // Display sliders — restyle without rebuilding the graph/sim.
   useEffect(() => {
-    const renderer = sigmaRef.current;
-    if (!renderer) return;
-    renderer.setSettings(buildSigmaSettings(readTheme(), settings));
-    const graph = renderer.getGraph();
-    const w = Math.max(0.2, 0.6 * settings.linkThickness);
-    graph.forEachEdge((e) => graph.setEdgeAttribute(e, "size", w));
-    renderer.refresh();
+    sceneRef.current?.applySettings(settings);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.linkThickness, settings.textFadeThreshold, settings.arrows]);
+  }, [
+    settings.linkThickness,
+    settings.textFadeThreshold,
+    settings.arrows,
+    settings.brightness,
+  ]);
 
-  // Theme toggle — recolour nodes/edges + restyle. Re-read AFTER the app's
-  // theme effect has flipped --bg (rAF + a slow-start safety timeout), or the
-  // first read sees the old palette and paints invisible nodes.
+  // Theme toggle — recolour the scene. Re-read AFTER the app's theme effect has
+  // flipped --bg (rAF + a slow-start safety timeout).
   useEffect(() => {
-    const apply = (): void => {
-      const r = sigmaRef.current;
-      if (!r) return;
-      const theme = readTheme();
-      // Only restyle labels/settings — node colours are the community palette
-      // (theme-independent) and edges are hidden, so don't overwrite them.
-      r.setSettings(buildSigmaSettings(theme, settingsRef.current));
-      r.refresh();
-    };
+    const apply = (): void => sceneRef.current?.applyTheme(readTheme());
     const raf = requestAnimationFrame(apply);
     const safety = window.setTimeout(apply, 300);
     return () => {
@@ -441,33 +339,30 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
     };
   }, [uiTheme]);
 
-  // Live-ingest glow — mirror ingestStore's touched files into the reducer
-  // ref and pulse the newest touch. Subscribes once; every change is just a
-  // cheap sigma refresh (no graph/sim rebuild). Tints survive the run ending
-  // so the user can see what the ingest changed; they clear when the store
-  // resets (new run / "ingest another").
+  // Live-ingest glow — mirror ingestStore's touched files into the style ref
+  // and pulse the newest touch. Subscribes once; every change is a cheap scene
+  // restyle (no graph/sim rebuild). Tints survive the run ending so the user
+  // can see what changed; they clear when the store resets.
   useEffect(() => {
     const glow = ingestGlowRef.current;
 
     const startPulse = (id: string): void => {
       if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-      if (pulseRafRef.current != null)
-        cancelAnimationFrame(pulseRafRef.current);
+      if (pulseRafRef.current != null) cancelAnimationFrame(pulseRafRef.current);
       const start = performance.now();
       const tick = (): void => {
-        const r = sigmaRef.current;
         const p = (performance.now() - start) / PULSE_MS;
-        if (p >= 1 || !r) {
+        if (p >= 1 || !sceneRef.current) {
           glow.pulseId = null;
           glow.pulseScale = 1;
           pulseRafRef.current = null;
-          r?.refresh({ skipIndexation: true });
+          pushStyle();
           return;
         }
         glow.pulseId = id;
         // Swell up and ease back: 1 → ~2.6 → 1.
         glow.pulseScale = 1 + 1.6 * Math.sin(Math.PI * p);
-        r.refresh({ skipIndexation: true });
+        pushStyle();
         pulseRafRef.current = requestAnimationFrame(tick);
       };
       pulseRafRef.current = requestAnimationFrame(tick);
@@ -489,24 +384,20 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
       }
       glow.tint = next;
       if (pulse && newest) startPulse(newest);
-      sigmaRef.current?.refresh({ skipIndexation: true });
+      pushStyle();
     };
 
-    // --- Live growth: pages the ingest writes appear in the galaxy as it
-    // runs. ingestStore rescans the link graph (debounced) after each write
-    // and publishes it as liveAdjacency; we DIFF it against the rendered
-    // graph and inject only the new nodes/edges — graph.addNode +
-    // sim.liveAdd — so the settled layout never tears down. New stars spawn
-    // next to their first already-placed neighbour and the physics tugs them
-    // into place. The official refreshLinkGraph at run end still does the
-    // full rebuild (sizes, communities) and reconciles everything.
+    // --- Live growth: pages the ingest writes appear in the galaxy as it runs.
+    // DIFF the rescanned link graph against the rendered one, inject only new
+    // nodes/edges (graph.addNode + sim.liveAdd), then rebuild the scene buffers
+    // so the newcomers render. The settled layout never tears down. ---
     const liveGrow = (adj: Adjacency): void => {
-      const renderer = sigmaRef.current;
       const sim = simRef.current;
+      const g = graphRef.current;
+      const scene = sceneRef.current;
       const vault = useVaultStore.getState().currentVault?.path;
       const ing = useIngestStore.getState();
-      if (!renderer || !sim || !vault || ing.vaultPath !== vault) return;
-      const g = renderer.getGraph() as VaultGraph;
+      if (!sim || !g || !scene || !vault || ing.vaultPath !== vault) return;
       const s = settingsRef.current;
       const theme = readTheme();
       const files = flattenMarkdown(useVaultStore.getState().fileTree);
@@ -519,7 +410,6 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
         showOrphans: s.showOrphans,
       });
 
-      // Candidate edges among allowed nodes; collect ones not rendered yet.
       const newEdges: [string, string][] = [];
       const newIdSet = new Set<string>();
       for (const [src, targets] of Object.entries(adj.forward)) {
@@ -536,28 +426,30 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
       }
       if (newIdSet.size === 0 && newEdges.length === 0) return;
 
-      // Position each new node beside its first positioned endpoint so it
-      // buds off the cluster instead of streaking in from the far field.
-      const placed = new Map<string, { x: number; y: number }>();
-      const posOf = (id: string): { x: number; y: number } | null => {
+      // Position each new node beside its first positioned endpoint so it buds
+      // off the cluster instead of streaking in from the far field.
+      const placed = new Map<string, { x: number; y: number; z: number }>();
+      const posOf = (id: string): { x: number; y: number; z: number } | null => {
         if (g.hasNode(id))
           return {
             x: g.getNodeAttribute(id, "x"),
             y: g.getNodeAttribute(id, "y"),
+            z: g.getNodeAttribute(id, "z"),
           };
         return placed.get(id) ?? null;
       };
+      const jitter = (): number => (Math.random() - 0.5) * 40;
       for (const id of newIdSet) {
-        let near: { x: number; y: number } | null = null;
+        let near: { x: number; y: number; z: number } | null = null;
         for (const [a, b] of newEdges) {
           if (a === id) near = posOf(b);
           else if (b === id) near = posOf(a);
           if (near) break;
         }
-        const jitter = (): number => (Math.random() - 0.5) * 40;
         placed.set(id, {
           x: (near?.x ?? 0) + jitter(),
           y: (near?.y ?? 0) + jitter(),
+          z: (near?.z ?? 0) + jitter(),
         });
       }
       for (const id of newIdSet) {
@@ -566,6 +458,7 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
           label: stem(id),
           x: p.x,
           y: p.y,
+          z: p.z,
           deg: 0,
           size: Math.max(1, s.nodeSize),
           color: theme.starDim,
@@ -574,14 +467,11 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
       const addedEdges: [string, string][] = [];
       for (const [a, b] of newEdges) {
         if (!g.hasNode(a) || !g.hasNode(b) || g.hasEdge(a, b)) continue;
-        g.addEdge(a, b, {
-          color: theme.edge,
-          size: 0.6 * s.linkThickness,
-        });
+        g.addEdge(a, b, { color: theme.edge, size: 0.6 * s.linkThickness });
         addedEdges.push([a, b]);
       }
-      // Degree-derived size for the newcomers only — existing stars keep
-      // their size until the end-of-run rebuild recomputes everything.
+      // Degree-derived size for the newcomers only — existing stars keep theirs
+      // until the end-of-run rebuild recomputes everything.
       for (const id of newIdSet) {
         const deg = g.degree(id);
         g.mergeNodeAttributes(id, {
@@ -590,7 +480,8 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
         });
       }
       sim.liveAdd([...newIdSet], addedEdges);
-      renderer.refresh();
+      scene.rebuild();
+      pushStyle();
       setCounts({ nodes: g.order, edges: g.size });
     };
 
@@ -601,10 +492,9 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
 
     const unsub = useIngestStore.subscribe((s, prev) => {
       if (s.stage === "idle" && prev.stage !== "idle") {
-        // Store reset — drop the glow.
         glow.tint = new Map();
         glow.pulseId = null;
-        sigmaRef.current?.refresh({ skipIndexation: true });
+        pushStyle();
         return;
       }
       if (s.touched !== prev.touched) sync(s.touched, s.vaultPath, true);
@@ -613,25 +503,22 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
     });
     return () => {
       unsub();
-      if (pulseRafRef.current != null)
-        cancelAnimationFrame(pulseRafRef.current);
+      if (pulseRafRef.current != null) cancelAnimationFrame(pulseRafRef.current);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Timelapse — replay the vault's growth in creation order with LIVE physics.
-  // The sim is reset to empty, then nodes are revealed oldest-first; each one
-  // spawns at the galactic centre and the running d3-force flings it outward,
-  // physically shoving the already-placed stars aside. The galaxy assembles and
-  // jostles itself into shape in real time rather than snapping to fixed spots.
-  // Rendering is driven by the sim's own ticks; this loop only paces reveals.
-  const REVEAL_MS = 18000; // total time to reveal every node
+  // The sim is reset to empty, then nodes are revealed oldest-first; each spawns
+  // at the galactic centre and the running d3-force-3d flings it outward,
+  // physically shoving the placed stars aside. The galaxy assembles in real time.
+  const REVEAL_MS = 18000;
   const startTimelapse = (): void => {
-    const renderer = sigmaRef.current;
+    const scene = sceneRef.current;
     const sim = simRef.current;
-    if (!renderer || !sim || renderer.getGraph().order === 0) return;
-    const graph = renderer.getGraph() as VaultGraph;
+    const graph = graphRef.current;
+    if (!scene || !sim || !graph || graph.order === 0) return;
 
-    // Reveal order: mtime order, then any present node mtime didn't cover.
     const present = new Set(graph.nodes());
     const order = tlOrderRef.current.filter((p) => present.has(p));
     const seen = new Set(order);
@@ -639,22 +526,21 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
       if (!seen.has(n)) order.push(n);
     });
 
-    // Hide everything and empty the sim — the galaxy grows from nothing.
     graph.forEachNode((n) => graph.setNodeAttribute(n, "hidden", true));
     sim.timelapseReset();
-    renderer.refresh({ skipIndexation: true });
+    scene.syncPositions();
     setTlPlaying(true);
 
     let next = 0;
     const start = performance.now();
     const step = (): void => {
-      const r = sigmaRef.current;
+      const sc = sceneRef.current;
       const sm = simRef.current;
-      if (!r || !sm) {
+      const g = graphRef.current;
+      if (!sc || !sm || !g) {
         tlRafRef.current = null;
         return;
       }
-      const g = r.getGraph() as VaultGraph;
       const now = performance.now() - start;
       const want = Math.min(
         order.length,
@@ -669,7 +555,7 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
       if (next < order.length) {
         tlRafRef.current = requestAnimationFrame(step);
       } else {
-        sm.timelapseSettle(); // reveal done — let the live galaxy cool to rest
+        sm.timelapseSettle();
         tlRafRef.current = null;
         setTlPlaying(false);
       }
@@ -677,21 +563,20 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
     tlRafRef.current = requestAnimationFrame(step);
   };
 
-  // Pause — stop pacing and reveal everything that's left at once, then let the
-  // live sim settle the full galaxy (timelapseReveal skips already-shown nodes).
+  // Pause — reveal everything that's left at once, then let the live sim settle.
   const pauseTimelapse = (): void => {
     if (tlRafRef.current != null) {
       cancelAnimationFrame(tlRafRef.current);
       tlRafRef.current = null;
     }
-    const renderer = sigmaRef.current;
+    const scene = sceneRef.current;
     const sim = simRef.current;
-    if (renderer && sim) {
-      const graph = renderer.getGraph() as VaultGraph;
+    const graph = graphRef.current;
+    if (scene && sim && graph) {
       graph.forEachNode((n) => graph.setNodeAttribute(n, "hidden", false));
       sim.timelapseReveal(graph.nodes());
       sim.timelapseSettle();
-      renderer.refresh({ skipIndexation: true });
+      scene.syncPositions();
     }
     setTlPlaying(false);
   };
@@ -737,27 +622,17 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
             }
           >
             {tlPlaying ? (
-              <svg
-                width="12"
-                height="12"
-                viewBox="0 0 12 12"
-                fill="currentColor"
-              >
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
                 <rect x="2" y="2" width="3" height="8" />
                 <rect x="7" y="2" width="3" height="8" />
               </svg>
             ) : (
-              <svg
-                width="12"
-                height="12"
-                viewBox="0 0 12 12"
-                fill="currentColor"
-              >
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
                 <path d="M3 2 L10 6 L3 10 Z" />
               </svg>
             )}
           </button>
-          <ZoomButtons sigmaRef={sigmaRef} />
+          <ZoomButtons sceneRef={sceneRef} />
           <button
             type="button"
             className="graph-toolbar__btn"
@@ -767,13 +642,7 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
             title={t.gr_settings ?? "Graph settings"}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-              <circle
-                cx="12"
-                cy="12"
-                r="3"
-                stroke="currentColor"
-                strokeWidth="2"
-              />
+              <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="2" />
               <path
                 d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
                 stroke="currentColor"
@@ -804,9 +673,7 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
             onToggle={() => setDrawerOpen((v) => !v)}
             settings={settings}
             onChange={(patch) => setSettings((prev) => ({ ...prev, ...patch }))}
-            onReset={() =>
-              setSettings({ ...DEFAULT_GRAPH_SETTINGS, search: "" })
-            }
+            onReset={() => setSettings({ ...DEFAULT_GRAPH_SETTINGS, search: "" })}
             tags={tags}
             folders={folders}
             tlPlaying={tlPlaying}
@@ -818,55 +685,17 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
   );
 }
 
-// The inner `pct` of the given nodes by distance from their centroid. Framing
-// to this (not every node) keeps the dense dandelion field filling the view
-// instead of a few far-flung disconnected components / orphans shrinking it.
-function robustSubset(graph: VaultGraph, ids: string[], pct = 0.9): string[] {
-  if (ids.length < 12) return ids;
-  let cx = 0;
-  let cy = 0;
-  for (const id of ids) {
-    cx += graph.getNodeAttribute(id, "x");
-    cy += graph.getNodeAttribute(id, "y");
-  }
-  cx /= ids.length;
-  cy /= ids.length;
-  const byDist = ids
-    .map((id) => ({
-      id,
-      d: Math.hypot(
-        graph.getNodeAttribute(id, "x") - cx,
-        graph.getNodeAttribute(id, "y") - cy,
-      ),
-    }))
-    .sort((a, b) => a.d - b.d);
-  return byDist
-    .slice(0, Math.max(12, Math.floor(byDist.length * pct)))
-    .map((n) => n.id);
-}
-
 function ZoomButtons({
-  sigmaRef,
+  sceneRef,
 }: {
-  sigmaRef: React.MutableRefObject<Sigma | null>;
+  sceneRef: React.MutableRefObject<GraphScene | null>;
 }): JSX.Element {
-  const zoomIn = (): void =>
-    void sigmaRef.current?.getCamera().animatedZoom({ duration: 250 });
-  const zoomOut = (): void =>
-    void sigmaRef.current?.getCamera().animatedUnzoom({ duration: 250 });
-  const fit = (): void => {
-    const r = sigmaRef.current;
-    if (r && r.getGraph().order >= 2) {
-      const g = r.getGraph() as VaultGraph;
-      void fitViewportToNodes(r, robustSubset(g, g.nodes()), { animate: true });
-    }
-  };
   return (
     <div style={{ display: "flex", gap: 4 }}>
       <button
         type="button"
         className="graph-toolbar__btn"
-        onClick={zoomOut}
+        onClick={() => sceneRef.current?.zoomOut()}
         aria-label="Zoom out"
       >
         −
@@ -874,7 +703,7 @@ function ZoomButtons({
       <button
         type="button"
         className="graph-toolbar__btn"
-        onClick={fit}
+        onClick={() => sceneRef.current?.fit()}
         aria-label="Fit"
       >
         fit
@@ -882,7 +711,7 @@ function ZoomButtons({
       <button
         type="button"
         className="graph-toolbar__btn"
-        onClick={zoomIn}
+        onClick={() => sceneRef.current?.zoomIn()}
         aria-label="Zoom in"
       >
         +

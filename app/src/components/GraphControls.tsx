@@ -212,6 +212,14 @@ export default function GraphControls({
           step={0.05}
           onChange={(v) => onChange({ linkThickness: v })}
         />
+        <Slider
+          label={t.gr_brightness ?? "Brightness"}
+          value={settings.brightness}
+          min={0.2}
+          max={2.5}
+          step={0.05}
+          onChange={(v) => onChange({ brightness: v })}
+        />
         <button
           type="button"
           className="graph-drawer__play"

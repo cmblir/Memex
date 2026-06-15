@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import type { JSX } from "react";
 import Sidebar from "./components/Sidebar";
 import Topbar from "./components/Topbar";
@@ -7,7 +7,9 @@ import DialogHost from "./components/DialogHost";
 import PageOverview from "./pages/PageOverview";
 import PageIngest from "./pages/PageIngest";
 import PageQuery from "./pages/PageQuery";
-import PageGraph from "./pages/PageGraph";
+// Lazy — the 3D graph pulls in three.js (~150KB gzip); keep it out of the
+// initial bundle so the app boots under the JS budget and loads it on demand.
+const PageGraph = lazy(() => import("./pages/PageGraph"));
 import PageHistory from "./pages/PageHistory";
 import PageProvenance from "./pages/PageProvenance";
 import PageSettings from "./pages/PageSettings";
@@ -16,6 +18,7 @@ import { STRINGS } from "./lib/i18n";
 import { useUIStore } from "./stores/uiStore";
 import { useSettingsStore } from "./stores/settingsStore";
 import { getLastVaultPath, useVaultStore } from "./stores/vaultStore";
+import { useIngestStore } from "./stores/ingestStore";
 import { ipc } from "./lib/ipc";
 
 // Matches the seeded accent in uiStore. While it's the active value we let the
@@ -40,6 +43,37 @@ export default function App(): JSX.Element {
   useEffect(() => {
     void loadSettings();
   }, [loadSettings]);
+
+  // Auto-refresh the file tree + link graph so EXTERNAL changes (edits in
+  // Obsidian/Finder, files written outside in-app operations) appear without a
+  // restart. Triggers: window focus, the tab becoming visible, and a gentle
+  // poll while visible. The vaultStore guards skip the commit when nothing
+  // changed, so this never churns the sidebar or rebuilds the 3D graph. Paused
+  // while an ingest run is active — that flow drives its own live updates and a
+  // mid-run adjacency swap would tear the graph down.
+  const currentVaultPath = currentVault?.path ?? null;
+  useEffect(() => {
+    if (!currentVaultPath) return;
+    const INGEST_RUNNING = ["writing-raw", "claude", "indexing"];
+    const refresh = (): void => {
+      if (document.visibilityState !== "visible") return;
+      if (INGEST_RUNNING.includes(useIngestStore.getState().stage)) return;
+      const v = useVaultStore.getState();
+      void v.refreshTree();
+      void v.refreshLinkGraph();
+    };
+    const onVisible = (): void => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", onVisible);
+    const id = window.setInterval(refresh, 4000);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.clearInterval(id);
+    };
+  }, [currentVaultPath]);
 
   // Track the OS colour scheme live so the "System" appearance option follows
   // light/dark changes at runtime (not just on app launch).
@@ -150,7 +184,12 @@ export default function App(): JSX.Element {
   if (route === "overview") body = <PageOverview t={t} />;
   else if (route === "ingest") body = <PageIngest t={t} />;
   else if (route === "query") body = <PageQuery t={t} />;
-  else if (route === "graph") body = <PageGraph t={t} />;
+  else if (route === "graph")
+    body = (
+      <Suspense fallback={<div className="graph-loading" />}>
+        <PageGraph t={t} />
+      </Suspense>
+    );
   else if (route === "history") body = <PageHistory t={t} />;
   else if (route === "provenance") body = <PageProvenance t={t} />;
   else if (route === "settings") body = <PageSettings t={t} />;

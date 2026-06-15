@@ -78,6 +78,12 @@ export const useVaultStore = create<VaultState>((set, get) => ({
       // another refresh has been kicked off after this one.
       if (seq !== refreshSeq) return;
       if (get().currentVault?.path !== vault.path) return;
+      // Only commit when the graph actually changed. The auto-refresh poll
+      // calls this on an interval; without this guard every tick would publish
+      // a fresh adjacency object and force PageGraph to tear down and rebuild
+      // the 3D graph (it keys off `adjacency`). BTreeMap serialization is
+      // key-sorted, so identical content yields identical JSON.
+      if (sameJSON(get().adjacency, adjacency)) return;
       set({ adjacency });
     } catch (err) {
       if (seq !== refreshSeq) return;
@@ -114,6 +120,10 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     if (!vault) return;
     try {
       const tree = await ipc.listFiles(vault.path);
+      // Vault switched mid-call, or nothing changed → don't churn the sidebar.
+      // list_files returns a name-sorted tree, so identical content === identical JSON.
+      if (get().currentVault?.path !== vault.path) return;
+      if (sameJSON(get().fileTree, tree)) return;
       set({ fileTree: tree });
     } catch (err) {
       set({ error: errorMessage(err) });
@@ -234,4 +244,11 @@ function errorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   if (typeof err === "string") return err;
   return "unknown error";
+}
+
+// Structural equality via JSON. Safe here because both payloads come from Rust
+// in a stable order — list_files is name-sorted and Adjacency is a BTreeMap
+// (key-sorted serialization) — so equal content always serializes identically.
+function sameJSON(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
 }
