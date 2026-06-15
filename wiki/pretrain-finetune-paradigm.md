@@ -8,8 +8,8 @@ tags:
   - pretraining
   - fine-tuning
 created: 2026-04-23
-last_updated: 2026-04-23
-source_count: 1
+last_updated: 2026-06-14
+source_count: 2
 confidence: high
 status: active
 ---
@@ -24,8 +24,9 @@ status: active
 
 ## 현대 LLM 파이프라인과의 관계
 
-[[llm-training-pipeline|현대 LLM 학습 파이프라인]]의 "사전학습 → (중간학습 →) SFT → RL" 흐름은 이 2단계 패러다임의 확장이라 볼 수 있다. 즉 비지도 사전학습 이후의 적응 단계가 단일 미세조정에서 여러 하위 단계로 세분화된 형태다.
+[[llm-training-pipeline|현대 LLM 학습 파이프라인]]의 "사전학습 → (중간학습 →) SFT → RL" 흐름[^src-제목-안드레이-카파시andrej-karpathy의-nanochat-100달러로-만드는-나만의-chatgpt]은 이 2단계 패러다임의 확장이라 볼 수 있다. 즉 비지도 사전학습 이후의 적응 단계가 단일 미세조정에서 여러 하위 단계로 세분화된 형태다.
 
 ---
 
 [^src-제목-gpt-1-improving-language-understanding-by-generative-pre-training-2018]: [[source-제목-gpt-1-improving-language-understanding-by-generative-pre-training-2018]]
+[^src-제목-안드레이-카파시andrej-karpathy의-nanochat-100달러로-만드는-나만의-chatgpt]: [[source-제목-안드레이-카파시andrej-karpathy의-nanochat-100달러로-만드는-나만의-chatgpt]]

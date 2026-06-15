@@ -8,9 +8,9 @@ tags:
   - transformer
   - 2018
 created: 2026-04-23
-last_updated: 2026-04-23
+last_updated: 2026-06-14
 source_count: 1
-confidence: high
+confidence: medium
 status: active
 ---
 
