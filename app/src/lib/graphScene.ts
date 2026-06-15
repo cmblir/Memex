@@ -141,6 +141,13 @@ export class GraphScene {
   private edgeMat: THREE.LineBasicMaterial;
   private edgePairs: [string, string][];
 
+  // Direction arrowheads (one instanced cone per edge, at the target end). The
+  // graph is undirected; direction follows edge insertion order, matching the
+  // old sigma "Arrows" toggle. Hidden unless settings.arrows is on.
+  private arrows: THREE.InstancedMesh;
+  private arrowGeom: THREE.ConeGeometry;
+  private arrowMat: THREE.MeshBasicMaterial;
+
   private starfield: THREE.Points;
   private labels = new Map<string, CSS2DObject>();
 
@@ -296,6 +303,25 @@ export class GraphScene {
     this.edges.frustumCulled = false;
     this.scene.add(this.edges);
 
+    // --- direction arrowheads (instanced cones, one per edge) ---
+    this.arrowGeom = new THREE.ConeGeometry(2.2, 7, 10); // points +Y; oriented per-edge
+    this.arrowMat = new THREE.MeshBasicMaterial({
+      color: parseRGBA(theme.edgeHi).color,
+      transparent: true,
+      opacity: 0.85,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    this.arrows = new THREE.InstancedMesh(
+      this.arrowGeom,
+      this.arrowMat,
+      Math.max(1, this.edgePairs.length),
+    );
+    this.arrows.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.arrows.frustumCulled = false;
+    this.arrows.visible = settings.arrows;
+    this.scene.add(this.arrows);
+
     // --- starfield (distant, dim, for parallax depth) ---
     this.starfield = this.buildStarfield(dark);
     this.scene.add(this.starfield);
@@ -314,6 +340,7 @@ export class GraphScene {
 
     this.writeNodes();
     this.writeEdges();
+    this.writeArrows();
     this.fit();
 
     // pointer events
@@ -440,6 +467,50 @@ export class GraphScene {
     col.needsUpdate = true;
   }
 
+  // Orient one cone per edge at the target end, pointing source→target. Scaled
+  // by linkThickness so that slider also controls arrow size. Hidden endpoints
+  // (timelapse) collapse the instance to zero scale.
+  private writeArrows(): void {
+    const lt = this.settings.linkThickness;
+    const up = new THREE.Vector3(0, 1, 0);
+    const sPos = new THREE.Vector3();
+    const tPos = new THREE.Vector3();
+    const dir = new THREE.Vector3();
+    const q = new THREE.Quaternion();
+    const pos = new THREE.Vector3();
+    const scl = new THREE.Vector3();
+    const m = new THREE.Matrix4();
+    const ZERO = new THREE.Vector3(0, 0, 0);
+    for (let i = 0; i < this.edgePairs.length; i++) {
+      const [s, t] = this.edgePairs[i];
+      const a = this.graph.getNodeAttributes(s);
+      const b = this.graph.getNodeAttributes(t);
+      tPos.set(b.x, b.y, b.z);
+      if (a.hidden || b.hidden) {
+        m.compose(tPos, q.identity(), ZERO);
+        this.arrows.setMatrixAt(i, m);
+        continue;
+      }
+      sPos.set(a.x, a.y, a.z);
+      dir.subVectors(tPos, sPos);
+      const len = dir.length();
+      if (len < 1e-3) {
+        m.compose(tPos, q.identity(), ZERO);
+        this.arrows.setMatrixAt(i, m);
+        continue;
+      }
+      dir.divideScalar(len);
+      q.setFromUnitVectors(up, dir);
+      // Sit the cone just outside the target star, pointing into it.
+      const back = b.size * NODE_RADIUS + 3.5 * lt;
+      pos.copy(tPos).addScaledVector(dir, -back);
+      scl.set(lt, lt, lt);
+      m.compose(pos, q, scl);
+      this.arrows.setMatrixAt(i, m);
+    }
+    this.arrows.instanceMatrix.needsUpdate = true;
+  }
+
   private updateLabels(): void {
     const h = Math.max(1, this.container.clientHeight);
     const scale = this.sizeScale(h);
@@ -473,6 +544,7 @@ export class GraphScene {
   syncPositions(): void {
     this.writeNodes();
     this.writeEdges();
+    if (this.arrows.visible) this.writeArrows();
   }
 
   setStyleState(s: SceneStyleState): void {
@@ -508,6 +580,21 @@ export class GraphScene {
     this.edges.geometry = this.edgeGeom;
     oldEdgeGeom.dispose();
 
+    // Arrows: instance count is fixed at allocation, so rebuild for the new
+    // edge count (reusing the shared cone geometry + material).
+    const oldArrows = this.arrows;
+    this.scene.remove(oldArrows);
+    oldArrows.dispose();
+    this.arrows = new THREE.InstancedMesh(
+      this.arrowGeom,
+      this.arrowMat,
+      Math.max(1, this.edgePairs.length),
+    );
+    this.arrows.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.arrows.frustumCulled = false;
+    this.arrows.visible = this.settings.arrows;
+    this.scene.add(this.arrows);
+
     // Labels: add any missing, drop any gone.
     const live = new Set(this.nodeIds);
     for (const [id, obj] of this.labels) {
@@ -531,6 +618,7 @@ export class GraphScene {
 
     this.writeNodes();
     this.writeEdges();
+    this.writeArrows();
   }
 
   applyTheme(theme: GraphTheme): void {
@@ -544,11 +632,13 @@ export class GraphScene {
     this.bloom.threshold = dark ? 0.0 : 0.6;
     const edge = parseRGBA(theme.edge);
     this.edgeMat.opacity = Math.min(1, edge.alpha * 3.5);
+    this.arrowMat.color.copy(parseRGBA(theme.edgeHi).color);
     for (const obj of this.labels.values()) {
       (obj.element as HTMLElement).style.color = theme.ink;
     }
     this.writeNodes();
     this.writeEdges();
+    if (this.arrows.visible) this.writeArrows();
   }
 
   applySettings(settings: GraphSettings): void {
@@ -560,6 +650,9 @@ export class GraphScene {
     // Brightness: overall exposure + bloom glow intensity.
     this.renderer.toneMappingExposure = settings.brightness;
     this.bloom.strength = this.baseBloom * settings.brightness;
+    // Direction arrows: toggle visibility; re-place (also picks up linkThickness).
+    this.arrows.visible = settings.arrows;
+    if (settings.arrows) this.writeArrows();
   }
 
   zoomIn(): void {
@@ -650,6 +743,9 @@ export class GraphScene {
     this.nodeMat.dispose();
     this.edgeGeom.dispose();
     this.edgeMat.dispose();
+    this.arrows.dispose();
+    this.arrowGeom.dispose();
+    this.arrowMat.dispose();
     (this.starfield.geometry as THREE.BufferGeometry).dispose();
     (this.starfield.material as THREE.Material).dispose();
     this.bloom.dispose();
