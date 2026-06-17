@@ -27,6 +27,7 @@ export interface GraphSettings {
   repelForce: number; // 0..20 — node repulsion (Obsidian: repelStrength)
   linkForce: number; // 0..1 — link spring stiffness (Obsidian: linkStrength)
   linkDistance: number; // 30..500 — ideal edge length (Obsidian: linkDistance)
+  clusterForce: number; // 0..1 — per-community clump tightness (galaxy clustering)
 }
 
 // Defaults are slider values (matching Obsidian's panel) — they are
@@ -59,13 +60,15 @@ export const DEFAULT_GRAPH_SETTINGS: GraphSettings = {
   // SHORT links — leaves hug their hub into a dense full circle (Obsidian),
   // not a sparse far-flung arc. Cluster separation comes from hub repulsion.
   linkDistance: 40,
+  // Each Louvain community contracts toward its degree-weighted centroid so it
+  // reads as a distinct galaxy/star-cluster; 0 = today's single cohesive cloud.
+  clusterForce: 0.6,
 };
 
-// v17: stronger gravity still, which compresses link-less orphans into
-// the disk with the clusters instead of letting them settle into faint
-// concentric shells (the leftover "ring" artifact). Bumping resets
-// persisted slider values.
-const KEY = "memex.graph.settings.v21";
+// v22: added the galaxy clusterForce (per-community centroid attraction) — the
+// universe graph now clumps communities into separated galaxies. Bumping the
+// key drops stale persisted blobs so the new field picks up its default.
+const KEY = "memex.graph.settings.v22";
 
 export function loadGraphSettings(): GraphSettings {
   try {

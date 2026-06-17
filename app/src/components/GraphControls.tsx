@@ -270,6 +270,14 @@ export default function GraphControls({
           step={5}
           onChange={(v) => onChange({ linkDistance: v })}
         />
+        <Slider
+          label={t.gr_cluster_force ?? "Cluster force"}
+          value={settings.clusterForce}
+          min={0}
+          max={1}
+          step={0.01}
+          onChange={(v) => onChange({ clusterForce: v })}
+        />
       </Section>
     </aside>
   );

@@ -314,6 +314,7 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
     settings.repelForce,
     settings.linkForce,
     settings.linkDistance,
+    settings.clusterForce,
   ]);
 
   // Display sliders — restyle without rebuilding the graph/sim.
@@ -462,6 +463,9 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
           deg: 0,
           size: Math.max(1, s.nodeSize),
           color: theme.starDim,
+          community: -1, // field star until the next colorByCommunity rebuild
+          isHub: false,
+          intensity: 0,
         });
       }
       const addedEdges: [string, string][] = [];

@@ -6,6 +6,11 @@ import Graph from "graphology";
 import louvain from "graphology-communities-louvain";
 import type { Adjacency, FileNode } from "./ipc";
 
+// Field-star colour for orphans / tiny groups — a soft cool blue-white that's
+// clearly visible on the dark void (the dim theme grey was nearly invisible),
+// but still calmer than the saturated community hues so hubs keep their weight.
+const FIELD_STAR = "#9aa6c2";
+
 // Cosmic palette — soft-bright hues on black so each connected community reads
 // as its own coloured star cluster / nebula region within the galaxy.
 const PALETTE = [
@@ -24,13 +29,21 @@ const PALETTE = [
 ];
 
 // Colour nodes by connected community (Louvain): each community of 3+ nodes
-// gets a distinct palette hue; orphans and tiny groups stay dim field stars.
-function colorByCommunity(graph: VaultGraph, dim: string): void {
+// gets a distinct palette hue (tinted by star temperature); orphans and tiny
+// groups stay dim field stars. Also records the community id and the
+// highest-degree node per community (the galaxy core "hub") so the layout can
+// clump each community into a galaxy and the renderer can bloom its core.
+function colorByCommunity(graph: VaultGraph, maxDeg: number): void {
   let comm: Record<string, number>;
   try {
     comm = louvain(graph) as Record<string, number>;
   } catch {
-    return; // empty/edgeless graph — leave dim
+    // Edgeless graph — no communities. Keep dim but ensure fields are defined.
+    graph.forEachNode((id) => {
+      graph.setNodeAttribute(id, "community", -1);
+      graph.setNodeAttribute(id, "isHub", false);
+    });
+    return;
   }
   const size = new Map<number, number>();
   for (const id in comm) size.set(comm[id], (size.get(comm[id]) ?? 0) + 1);
@@ -40,8 +53,36 @@ function colorByCommunity(graph: VaultGraph, dim: string): void {
     .map(([c]) => c);
   const colorOf = new Map<number, string>();
   ranked.forEach((c, i) => colorOf.set(c, PALETTE[i % PALETTE.length]));
+  const sized = new Set(ranked);
+  // Highest-degree node of each sized community = its galaxy core.
+  const hubOf = new Map<number, { id: string; deg: number }>();
   graph.forEachNode((id) => {
-    graph.setNodeAttribute(id, "color", colorOf.get(comm[id]) ?? dim);
+    const c = comm[id];
+    if (!sized.has(c)) return;
+    const deg = graph.degree(id);
+    const cur = hubOf.get(c);
+    if (!cur || deg > cur.deg) hubOf.set(c, { id, deg });
+  });
+  const hubIds = new Set([...hubOf.values()].map((h) => h.id));
+  graph.forEachNode((id) => {
+    const c = comm[id];
+    const dn = maxDeg > 0 ? graph.degree(id) / maxDeg : 0;
+    const isHub = hubIds.has(id);
+    const palette = colorOf.get(c);
+    // Community stars get the temperature ramp tinted by their hue; orphans /
+    // tiny (<3) groups become visible cool field stars (FIELD_STAR + a little
+    // per-star temperature variety) instead of the near-invisible dim grey.
+    graph.setNodeAttribute(
+      id,
+      "color",
+      tintColor(palette ?? FIELD_STAR, dn, id),
+    );
+    graph.setNodeAttribute(id, "community", sized.has(c) ? c : -1);
+    graph.setNodeAttribute(id, "isHub", isHub);
+    // NO per-hub size/intensity floor: flooring every community core to the same
+    // size + brightness is exactly what made all clusters look identical. A core
+    // blazes ONLY if its GLOBAL degree earns it (power-law pass above). `isHub`
+    // remains a grouping/label flag and the cluster-force anchor.
   });
 }
 
@@ -171,20 +212,34 @@ export interface BuildGraphOpts {
 }
 
 
-// Deterministic pseudo-random scatter for seed positions on a SPHERE SHELL —
-// the 3D analogue of the old ring scatter. Math.random is unavailable in some
-// sandboxed contexts and would make runs non-reproducible, so we hash the id.
-// Nodes must NOT start at 0,0,0 or the sim explodes; the shell also gives the
-// d3-force-3d layout an immediate volumetric spread to relax from.
-function seededXYZ(id: string, i: number): { x: number; y: number; z: number } {
+// FNV-1a hash of a string → uint32. Math.random is unavailable in some
+// sandboxed contexts and would make runs non-reproducible, so all
+// pseudo-randomness (seed positions, per-star jitter, temperature) hashes the
+// id instead. Deterministic: same vault → same galaxy on every reload.
+function hash32(id: string): number {
   let h = 2166136261;
   for (let k = 0; k < id.length; k++) {
     h ^= id.charCodeAt(k);
     h = Math.imul(h, 16777619);
   }
-  const a = ((h >>> 0) % 1000) / 1000;
-  const b = (((h >>> 0) * 2654435761) % 1000) / 1000;
-  const c = (((h >>> 0) * 40503) % 997) / 997;
+  return h >>> 0;
+}
+
+// Deterministic 0..1 stream from (id, salt) — salt picks an independent stream
+// so size-jitter, temperature and timelapse spawn don't correlate.
+export function seededUnit(id: string, salt = 0): number {
+  return (hash32(`${id}:${salt}`) % 100000) / 100000;
+}
+
+// Deterministic pseudo-random scatter for seed positions on a SPHERE SHELL —
+// the 3D analogue of the old ring scatter. Nodes must NOT start at 0,0,0 or the
+// sim explodes; the shell also gives the d3-force-3d layout an immediate
+// volumetric spread to relax from.
+function seededXYZ(id: string, i: number): { x: number; y: number; z: number } {
+  const h = hash32(id);
+  const a = (h % 1000) / 1000;
+  const b = ((h * 2654435761) % 1000) / 1000;
+  const c = ((h * 40503) % 997) / 997;
   const r = 300 + a * 300;
   const theta = b * Math.PI * 2 + i * 0.0001; // azimuth
   const phi = Math.acos(2 * c - 1); // polar angle — uniform over the sphere
@@ -196,6 +251,75 @@ function seededXYZ(id: string, i: number): { x: number; y: number; z: number } {
   };
 }
 
+// --- Star temperature (deterministic Kelvin→RGB, Tanner-Helland approx) ---
+function clamp(v: number, lo: number, hi: number): number {
+  return v < lo ? lo : v > hi ? hi : v;
+}
+
+// Map a node's degree-normalised rank to a stellar colour temperature: faint
+// field stars run warm (~3800K), bright hub cores blue-white (~10000K), with a
+// little per-star jitter. Returned RGB is normalised so the brightest channel
+// is 1 (a tint multiplier, not a darkener).
+function kelvinTint(dn: number, id: string): { r: number; g: number; b: number } {
+  // Stellar colour-temperature ramp on a steepened rank: the mass of faint
+  // field stars sits amber (~3400K) and only the few mega-hubs reach hot
+  // blue-white (~11000K). pow(dn,0.5) spreads the ramp across the body so colour
+  // variety is visible, not binary. Deterministic ±300K jitter (salt 2).
+  const t = Math.pow(dn, 0.5);
+  const k = (3400 + t * 7600 + (seededUnit(id, 2) - 0.5) * 600) / 100;
+  let r: number;
+  let g: number;
+  let b: number;
+  if (k <= 66) {
+    r = 255;
+    g = 99.4708025861 * Math.log(k) - 161.1195681661;
+  } else {
+    r = 329.698727446 * Math.pow(k - 60, -0.1332047592);
+    g = 288.1221695283 * Math.pow(k - 60, -0.0755148492);
+  }
+  if (k >= 66) b = 255;
+  else if (k <= 19) b = 0;
+  else b = 138.5177312231 * Math.log(k - 10) - 305.0447927307;
+  const cr = clamp(r, 0, 255);
+  const cg = clamp(g, 0, 255);
+  const cb = clamp(b, 0, 255);
+  const mx = Math.max(cr, cg, cb) || 1;
+  return { r: cr / mx, g: cg / mx, b: cb / mx };
+}
+
+function hexToRgb01(hex: string): { r: number; g: number; b: number } | null {
+  const m = /^#([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return null;
+  const n = parseInt(m[1], 16);
+  return { r: ((n >> 16) & 255) / 255, g: ((n >> 8) & 255) / 255, b: (n & 255) / 255 };
+}
+
+function rgbToHex(r: number, g: number, b: number): string {
+  const h = (v: number): string =>
+    clamp(Math.round(v * 255), 0, 255).toString(16).padStart(2, "0");
+  return `#${h(r)}${h(g)}${h(b)}`;
+}
+
+// Multiply a star's temperature tint into its community hue, keeping the hue
+// dominant (so communities stay distinguishable). Non-hex colours (the dim
+// field-star fallback) pass through untouched.
+function tintColor(hue: string, dn: number, id: string): string {
+  const h = hexToRgb01(hue);
+  if (!h) return hue;
+  // Community HUE leads, so clusters stay visibly different colours (blue /
+  // green / amber / …) instead of a monochrome field. Temperature is only a
+  // subtle tint (~25%) that adds per-star variety and nudges the hottest cores
+  // slightly whiter — degree-keyed temperature alone collapses to one colour
+  // because almost every node is low-degree.
+  const t = kelvinTint(dn, id);
+  const tw = 0.25;
+  return rgbToHex(
+    h.r * (1 - tw) + h.r * t.r * tw,
+    h.g * (1 - tw) + h.g * t.g * tw,
+    h.b * (1 - tw) + h.b * t.b * tw,
+  );
+}
+
 export interface GraphNodeAttrs {
   label: string;
   x: number;
@@ -204,6 +328,9 @@ export interface GraphNodeAttrs {
   deg: number;
   size: number;
   color: string;
+  community: number; // Louvain community id (≥3 nodes); -1 = field star / orphan
+  isHub: boolean; // highest-degree node of its community → galaxy core
+  intensity: number; // HDR brightness boost (>1 only for top hubs) for bloom
   hidden?: boolean;
 }
 export interface GraphEdgeAttrs {
@@ -231,6 +358,9 @@ export function buildGraph(
       deg: 0,
       size: 2, // real size + colour set once degree is known
       color: o.starDim,
+      community: -1, // set by colorByCommunity once Louvain runs
+      isHub: false,
+      intensity: 0,
     });
   };
 
@@ -249,16 +379,28 @@ export function buildGraph(
   }
   for (const p of allowed) ensure(p); // isolated/orphan nodes
 
-  // Tiny star cores: leaves/orphans ~1px, hubs grow with sqrt(degree) capped
-  // ~5px. The glow node program wraps each in a soft halo, so the cores stay
-  // small and point-like while still reading as stars.
+  // Star sizes + HDR intensity from a POWER-LAW degree distribution: a few huge,
+  // bright hub "cores" (galaxy centres that bloom) and many faint pinprick field
+  // stars — the spread that reads as a starfield rather than uniform confetti.
+  let maxDeg = 0;
+  g.forEachNode((id) => {
+    maxDeg = Math.max(maxDeg, g.degree(id));
+  });
   g.forEachNode((id) => {
     const deg = g.degree(id);
-    const base = Math.max(1, Math.min(5, 1 + Math.sqrt(deg) * 0.7));
+    const dn = maxDeg > 0 ? deg / maxDeg : 0;
+    const jit = 1 + (seededUnit(id, 1) - 0.5) * 0.36; // ±18% per-star size jitter
     g.setNodeAttribute(id, "deg", deg);
-    g.setNodeAttribute(id, "size", base * o.nodeSize);
+    // Modest size hierarchy (neural-mesh look): nodes are small-to-medium and
+    // sit ON the colored edge mesh; hubs are only ~5× a leaf, not giant blobs.
+    // The visual weight comes from the edges, not huge points.
+    g.setNodeAttribute(id, "size", (1.0 + Math.pow(dn, 0.8) * 4) * o.nodeSize * jit);
+    // Steep HDR intensity: crosses the bloom threshold ONLY for the top hubs
+    // (dn≈1 → 5.0 blazes; dn<~0.35 → <1, no bloom). The #1 lever vs uniformity.
+    g.setNodeAttribute(id, "intensity", Math.pow(dn, 2.4) * 5.0);
   });
-  // Colour each connected community its own hue.
-  colorByCommunity(g, o.starDim);
+  // Colour by community hue + star temperature; store community id + hub flag
+  // (needs the degree normalisation above, so it runs AFTER the size pass).
+  colorByCommunity(g, maxDeg);
   return g;
 }

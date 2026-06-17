@@ -111,6 +111,7 @@ export interface Strings {
   gr_repel_force: string;
   gr_link_force: string;
   gr_link_distance: string;
+  gr_cluster_force: string;
   gr_reset: string;
   gr_empty_pre: string;
   gr_empty_post: string;
@@ -286,6 +287,7 @@ export const STRINGS: Record<Lang, Strings> = {
     gr_repel_force: "Repel force",
     gr_link_force: "Link force",
     gr_link_distance: "Link distance",
+    gr_cluster_force: "Cluster force",
     gr_reset: "Reset",
     gr_empty_pre: "No wikilinks found in the vault yet. Add some ",
     gr_empty_post: " to see the graph grow.",
@@ -332,7 +334,7 @@ export const STRINGS: Record<Lang, Strings> = {
     mcp_offline_note:
       "Works even when Memex is closed — Claude launches the server itself.",
     mcp_not_found:
-      "Could not find mcp-server/ near this vault. Open the Memex repo as your vault.",
+      "MCP server files are missing from this build. Reinstall the latest Memex.",
     s_model_lede:
       "Memex uses Claude by default. You can switch models for ingest, queries, or both — each task can use a different model.",
     s_model_ingest: "Ingest model",
@@ -470,6 +472,7 @@ export const STRINGS: Record<Lang, Strings> = {
     gr_repel_force: "반발력",
     gr_link_force: "링크 장력",
     gr_link_distance: "링크 거리",
+    gr_cluster_force: "뭉침 강도",
     gr_reset: "초기화",
     gr_empty_pre: "아직 위키링크가 없습니다. ",
     gr_empty_post: " 를 추가하면 그래프가 자랍니다.",
@@ -516,7 +519,7 @@ export const STRINGS: Record<Lang, Strings> = {
     mcp_offline_note:
       "Memex가 꺼져 있어도 동작 — Claude가 서버를 직접 띄웁니다.",
     mcp_not_found:
-      "이 vault 근처에서 mcp-server/ 를 찾지 못했습니다. Memex 레포를 vault로 여세요.",
+      "이 빌드에 MCP 서버 파일이 없습니다. 최신 Memex를 다시 설치하세요.",
     s_model_lede:
       "Memex는 기본적으로 Claude를 사용합니다. 가져오기와 질문에 서로 다른 모델을 지정할 수 있습니다.",
     s_model_ingest: "가져오기용 모델",
@@ -654,6 +657,7 @@ export const STRINGS: Record<Lang, Strings> = {
     gr_repel_force: "反発力",
     gr_link_force: "リンク張力",
     gr_link_distance: "リンク距離",
+    gr_cluster_force: "クラスター力",
     gr_reset: "リセット",
     gr_empty_pre: "まだウィキリンクがありません。",
     gr_empty_post: " を追加するとグラフが育ちます。",
@@ -700,7 +704,7 @@ export const STRINGS: Record<Lang, Strings> = {
     mcp_offline_note:
       "Memex を閉じていても動作 — Claude がサーバーを自分で起動します。",
     mcp_not_found:
-      "この vault 付近に mcp-server/ が見つかりません。Memex リポジトリを vault として開いてください。",
+      "このビルドに MCP サーバーファイルがありません。最新の Memex を再インストールしてください。",
     s_model_lede:
       "Memex は標準で Claude を使います。取り込みと質問で別々のモデルを指定できます。",
     s_model_ingest: "取り込み用モデル",

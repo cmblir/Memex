@@ -14,6 +14,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import {
   CSS2DRenderer,
   CSS2DObject,
@@ -21,12 +22,28 @@ import {
 import type { VaultGraph } from "./graphData";
 import type { GraphTheme } from "./graphTheme";
 import type { GraphSettings } from "./graphSettings";
+import { NebulaLayer } from "./nebulaLayer";
+import { PulseLayer } from "./pulseLayer";
 
 // World radius (in sim units) per unit of node `size`, and how far the halo
 // extends past the core — mirrors the old GLOW_SCALE 2.6 intent in 3D.
 const NODE_RADIUS = 3.4;
 const GLOW_SCALE = 3.2;
 const PICK_BASE_PX = 14;
+
+// Edges carry the "neural mesh": each end is tinted by its node's community
+// colour (intra-cluster edges glow the cluster hue, inter-cluster edges gradient
+// between the two), and the additive sum of a dense cluster's many edges builds
+// the glow. These are per-end brightness multipliers on that colour.
+const EDGE_OPACITY = 0.55; // base material opacity (× linkThickness)
+const EDGE_BASE = 0.6; // default per-end brightness
+const EDGE_HI = 1.15; // incident edges on hover (pop)
+const EDGE_DIM = 0.1; // non-incident edges on hover (fade, not vanish)
+
+// Reference look is a clean neural mesh on a calm void — gas + background star
+// dots muddy it. Kept wired but off; flip to re-enable.
+const SHOW_NEBULA = false;
+const SHOW_STARFIELD = false;
 
 export interface GraphSceneCallbacks {
   onNodeClick(id: string): void;
@@ -76,21 +93,30 @@ const NODE_VERT = /* glsl */ `
 attribute float a_size;
 attribute vec3 a_color;
 attribute float a_alpha;
+attribute float a_intensity;
 uniform float u_pixelRatio;
 uniform float u_sizeScale;
 uniform float u_fogNear;
 uniform float u_fogFar;
+uniform float u_time;
 varying vec3 v_color;
 varying float v_alpha;
 varying float v_fade;
+varying float v_int;
 void main() {
   vec4 mv = modelViewMatrix * vec4(position, 1.0);
   float dist = max(1.0, -mv.z);
   gl_PointSize = a_size * ${NODE_RADIUS.toFixed(1)} * ${GLOW_SCALE.toFixed(1)} * u_sizeScale * u_pixelRatio / dist;
-  gl_PointSize = clamp(gl_PointSize, 4.0, 340.0);
+  gl_PointSize *= (1.0 + a_intensity * 0.35); // hub cores a touch larger
+  // Gentle breathing — each star pulses on its own phase so the field looks alive.
+  gl_PointSize *= 1.0 + 0.07 * sin(u_time * 1.3 + position.x * 0.03 + position.y * 0.021);
+  // Floor at 1.3 (was 4.0) so distant field stars are true pinpricks, not
+  // uniform confetti; cap at 340 (hardware clips ~64 anyway, but cores bloom).
+  gl_PointSize = clamp(gl_PointSize, 1.3, 340.0);
   gl_Position = projectionMatrix * mv;
   v_color = a_color;
   v_alpha = a_alpha;
+  v_int = a_intensity;
   // Nearer stars brighter; distant ones fade into the fog. Floor at 0.25 so the
   // far field never fully vanishes.
   v_fade = clamp((u_fogFar - dist) / max(1.0, u_fogFar - u_fogNear), 0.25, 1.0);
@@ -102,14 +128,22 @@ precision mediump float;
 varying vec3 v_color;
 varying float v_alpha;
 varying float v_fade;
+varying float v_int;
 void main() {
   float d = length(gl_PointCoord - vec2(0.5)) * 2.0;
   float core = 1.0 - smoothstep(0.30, 0.45, d);  // solid bright centre
   float glow = pow(max(0.0, 1.0 - d), 2.2);        // soft halo to the edge
   float a = max(core, glow * 0.6) * v_alpha * v_fade;
   if (a < 0.004) discard;
-  // Brighten the core so UnrealBloom catches it; depth-fade the rim.
-  vec3 col = v_color * (0.65 + 0.35 * v_fade) + core * 0.25;
+  // Hub cores get an HDR boost (v_int>1) so UnrealBloom catches only them, and
+  // a white-hot push toward their centre; field stars keep their hue.
+  vec3 base = v_color * (0.65 + 0.35 * v_fade);
+  // HDR core boost MULTIPLIES the star's own colour (not neutral white), so a
+  // blue-white core stays blue-white and an amber field star stays amber.
+  vec3 col = base + base * core * (0.25 + v_int * 1.4);
+  // Only a thin white-hot pinpoint at the very centre of the hottest hubs,
+  // capped low so core COLOUR survives instead of washing to pure white.
+  col = mix(col, vec3(1.0), core * clamp(v_int * 0.28, 0.0, 0.45));
   gl_FragColor = vec4(col, a);
 }
 `;
@@ -148,8 +182,16 @@ export class GraphScene {
   private arrowGeom: THREE.ConeGeometry;
   private arrowMat: THREE.MeshBasicMaterial;
 
-  private starfield: THREE.Points;
+  // Multi-shell parallax background (2-3 Points layers in one Group) for depth.
+  private starfield: THREE.Group;
+  private nebula: NebulaLayer;
+  private nebulaTick = 0; // throttle nebula centroid recompute (every Nth tick)
+  private pulse: PulseLayer; // signals flowing along edges (alive/communication)
+  private lastFrame = 0; // performance.now() of the previous animation frame
   private labels = new Map<string, CSS2DObject>();
+  // Ids allowed to label at rest (hubs + global top-N); everything else stays
+  // label-silent so the cosmos isn't covered in date-stamp clutter.
+  private labelable = new Set<string>();
 
   private style: SceneStyleState = EMPTY_STYLE;
   private raf: number | null = null;
@@ -188,8 +230,14 @@ export class GraphScene {
     const pr = Math.min(window.devicePixelRatio || 1, 2); // cap bloom cost
 
     const bg = parseRGBA(theme.bg).color;
-    this.scene.background = bg;
-    this.scene.fog = new THREE.FogExp2(bg.getHex(), 0.00065);
+    const dark = bg.getHSL({ h: 0, s: 0, l: 0 }).l < 0.5;
+    // Soft near-black with a faint blue cast (space, not a harsh flat black, and
+    // no busy dot grid — the mesh reads better on a calm void).
+    const sceneBg = dark ? new THREE.Color(0x05060d) : bg;
+    this.scene.background = sceneBg;
+    // Graded atmospheric depth (lower than the old 0.00065 so far parallax star
+    // shells fade in instead of being fogged out).
+    this.scene.fog = new THREE.FogExp2(sceneBg.getHex(), dark ? 0.00012 : 0.00009);
 
     this.camera = new THREE.PerspectiveCamera(58, w / h, 0.5, 8000);
     this.camera.position.set(0, 0, 900);
@@ -197,7 +245,9 @@ export class GraphScene {
     this.renderer = new THREE.WebGLRenderer({
       antialias: true,
       powerPreference: "high-performance",
+      alpha: true, // transparent canvas so the CSS dot-grid backdrop shows
     });
+    this.renderer.setClearColor(0x000000, 0);
     this.renderer.setPixelRatio(pr);
     this.renderer.setSize(w, h);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -226,20 +276,41 @@ export class GraphScene {
     this.controls.autoRotate = !this.reducedMotion;
     this.controls.autoRotateSpeed = 0.35;
 
-    // Bloom — deep-space glow. Strength/threshold tuned low for ~tens of stars.
-    const dark = parseRGBA(theme.bg).color.getHSL({ h: 0, s: 0, l: 0 }).l < 0.5;
-    this.composer = new EffectComposer(this.renderer);
+    // Bloom — deep-space glow. The high-pass runs on the LINEAR (un-tone-mapped)
+    // composer buffer, where lone field stars peak at luminance ~1.16; a dark
+    // threshold of 1.3 sits just above that so ONLY the HDR hub cores
+    // (a_intensity-boosted) and dense additive clumps bloom into glowing galaxy
+    // centres — the field stays crisp instead of washing into fog.
+    // HDR pipeline: render into an explicit HALF-FLOAT target so values >1.0
+    // survive into the bloom high-pass instead of clamping to white (the
+    // "uniform white puff" root cause). v0.184 defaults to HalfFloatType, but we
+    // pass it explicitly so a future upgrade can't silently drop us to 8-bit LDR.
+    const hdrTarget = new THREE.WebGLRenderTarget(
+      Math.max(1, Math.floor(w * pr)),
+      Math.max(1, Math.floor(h * pr)),
+      { type: THREE.HalfFloatType },
+    );
+    this.composer = new EffectComposer(this.renderer, hdrTarget);
     this.composer.setPixelRatio(pr);
     this.composer.setSize(w, h);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
-    this.baseBloom = dark ? 1.2 : 0.3;
+    // Bloom runs on the LINEAR HDR buffer. Only a_intensity-boosted hub cores
+    // climb above the threshold (field stars peak ~1.25), so ONLY cores + dense
+    // additive clumps bloom into galaxy centres — the field stays crisp.
+    // Strength is brightness-INDEPENDENT: exposure already scales the whole image
+    // via OutputPass, so double-multiplying would blow the glow into a wash.
+    this.baseBloom = dark ? 0.9 : 0.25;
     this.bloom = new UnrealBloomPass(
       new THREE.Vector2(w, h),
-      this.baseBloom * settings.brightness, // strength × brightness
-      0.75, // radius
-      dark ? 0.0 : 0.6, // threshold
+      this.baseBloom,
+      0.4, // radius (tight — cores, not haze)
+      dark ? 1.6 : 0.7, // threshold above the field-star ceiling
     );
     this.composer.addPass(this.bloom);
+    // OutputPass MUST be last: it re-applies renderer.toneMapping (ACES) +
+    // toneMappingExposure + sRGB on the final HDR buffer. Without it the HDR
+    // range is never compressed and bright pixels clamp to flat white.
+    this.composer.addPass(new OutputPass());
 
     // --- nodes ---
     this.nodeIds = graph.nodes();
@@ -262,19 +333,26 @@ export class GraphScene {
       "a_alpha",
       new THREE.BufferAttribute(new Float32Array(n), 1),
     );
+    this.nodeGeom.setAttribute(
+      "a_intensity",
+      new THREE.BufferAttribute(new Float32Array(n), 1),
+    );
     this.nodeMat = new THREE.ShaderMaterial({
       uniforms: {
         u_pixelRatio: { value: pr },
         u_sizeScale: { value: this.sizeScale(h) },
         u_fogNear: { value: 200 },
         u_fogFar: { value: 2600 },
+        u_time: { value: 0 },
       },
       vertexShader: NODE_VERT,
       fragmentShader: NODE_FRAG,
       transparent: true,
       depthWrite: false,
       depthTest: false,
-      blending: THREE.NormalBlending,
+      // Additive on dark themes so dense clumps self-brighten into glowing
+      // galaxy cores; normal on light themes (additive would wash to white).
+      blending: dark ? THREE.AdditiveBlending : THREE.NormalBlending,
     });
     this.points = new THREE.Points(this.nodeGeom, this.nodeMat);
     this.points.frustumCulled = false;
@@ -291,13 +369,14 @@ export class GraphScene {
       "color",
       new THREE.BufferAttribute(new Float32Array(this.edgePairs.length * 6), 3),
     );
-    const edge = parseRGBA(theme.edge);
     this.edgeMat = new THREE.LineBasicMaterial({
       vertexColors: true,
       transparent: true,
-      opacity: Math.min(1, edge.alpha * 3.5), // lines can't vary width; opacity carries faintness
+      opacity: Math.min(1, EDGE_OPACITY * settings.linkThickness),
       depthWrite: false,
-      blending: THREE.AdditiveBlending,
+      // Additive on dark (colored edges glow + sum into the mesh); normal on
+      // light (additive would wash saturated edges to white over a near-white bg).
+      blending: dark ? THREE.AdditiveBlending : THREE.NormalBlending,
     });
     this.edges = new THREE.LineSegments(this.edgeGeom, this.edgeMat);
     this.edges.frustumCulled = false;
@@ -322,9 +401,20 @@ export class GraphScene {
     this.arrows.visible = settings.arrows;
     this.scene.add(this.arrows);
 
-    // --- starfield (distant, dim, for parallax depth) ---
-    this.starfield = this.buildStarfield(dark);
-    this.scene.add(this.starfield);
+    // --- starfield (distant, dim, multi-shell parallax depth) — off by default ---
+    this.starfield = SHOW_STARFIELD ? this.buildStarfield(dark) : new THREE.Group();
+    if (SHOW_STARFIELD) this.scene.add(this.starfield);
+
+    // --- nebula/dust (faint additive gas over the biggest galaxies) ---
+    this.nebula = new NebulaLayer(this.graph, this.nodeIds, dark && SHOW_NEBULA);
+    this.scene.add(this.nebula.group);
+
+    // --- pulses (signals flowing along the edges, so the graph reads as alive) ---
+    this.pulse = new PulseLayer(this.graph, this.edgePairs, pr, dark);
+    this.scene.add(this.pulse.points);
+
+    // --- label allow-set (declutter) ---
+    this.computeLabelable();
 
     // --- labels ---
     for (const id of this.nodeIds) {
@@ -361,33 +451,81 @@ export class GraphScene {
     return height / 2 / Math.tan(fovRad / 2);
   }
 
-  private buildStarfield(dark: boolean): THREE.Points {
-    const count = 1400;
-    const pos = new Float32Array(count * 3);
-    // Deterministic-ish scatter on a large shell so it parallaxes behind the
-    // graph. Math.random is fine at runtime (only graphData seeding avoids it).
-    for (let i = 0; i < count; i++) {
-      const theta = Math.random() * Math.PI * 2;
-      const phi = Math.acos(2 * Math.random() - 1);
-      const r = 2600 + Math.random() * 2400;
-      const sp = Math.sin(phi);
-      pos[i * 3] = Math.cos(theta) * r * sp;
-      pos[i * 3 + 1] = Math.sin(theta) * r * sp;
-      pos[i * 3 + 2] = Math.cos(phi) * r;
-    }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-    const m = new THREE.PointsMaterial({
-      color: dark ? 0x9fb0d4 : 0xb9c2d6,
-      size: dark ? 2.2 : 1.6,
-      sizeAttenuation: false,
-      transparent: true,
-      opacity: dark ? 0.55 : 0.3,
-      depthWrite: false,
+  // Allow-set of ids that may label at rest: every galaxy core (isHub) + the
+  // global top-N by degree. Recomputed on rebuild so live-ingest newcomers and
+  // newly-promoted hubs can label. Deterministic (deg desc, id tiebreak).
+  private computeLabelable(): void {
+    this.labelable.clear();
+    const TOP_N = 24;
+    const byDeg = [...this.nodeIds].sort((a, b) => {
+      const da = this.graph.getNodeAttribute(a, "deg");
+      const db = this.graph.getNodeAttribute(b, "deg");
+      return db - da || (a < b ? -1 : 1);
     });
-    const pts = new THREE.Points(g, m);
-    pts.frustumCulled = false;
-    return pts;
+    for (let i = 0; i < Math.min(TOP_N, byDeg.length); i++) {
+      this.labelable.add(byDeg[i]);
+    }
+    for (const id of this.nodeIds) {
+      if (this.graph.getNodeAttribute(id, "isHub")) this.labelable.add(id);
+    }
+  }
+
+  // Deterministic 0..1 LCG stream (no Math.random — keeps the cosmos identical
+  // across reloads / theme toggles). `n` indexes the stream; reproducible.
+  private static starRand(n: number): number {
+    let x = (n * 1664525 + 1013904223) >>> 0; // Numerical Recipes LCG
+    x ^= x >>> 15;
+    x = (x * 2246822519) >>> 0;
+    x ^= x >>> 13;
+    return (x >>> 0) / 4294967296;
+  }
+
+  // Three parallax shells (near/mid/far). Closer shells are larger + brighter
+  // and parallax faster against the graph as the camera orbits; the far shell is
+  // a dense, tiny, very dim wash that fixes the horizon. sizeAttenuation:false
+  // keeps points pixel-sized, and a plain low-opacity PointsMaterial (NOT the
+  // additive HDR node shader) guarantees these never bloom — depth cue only.
+  private buildStarfield(dark: boolean): THREE.Group {
+    const group = new THREE.Group();
+    const shells = dark
+      ? [
+          { count: 900, r0: 2400, r1: 3000, size: 2.0, color: 0xbcc6e0, op: 0.5 },
+          { count: 1100, r0: 3600, r1: 4600, size: 1.4, color: 0x8f9ec4, op: 0.34 },
+          { count: 1400, r0: 5200, r1: 6400, size: 1.0, color: 0x6b7aa6, op: 0.22 },
+        ]
+      : [
+          { count: 700, r0: 2400, r1: 3000, size: 1.5, color: 0xc6cee0, op: 0.28 },
+          { count: 900, r0: 3600, r1: 4600, size: 1.1, color: 0xb2bcd2, op: 0.18 },
+          { count: 1100, r0: 5200, r1: 6400, size: 0.8, color: 0xa6b0c8, op: 0.12 },
+        ];
+    let seed = 1; // global stream cursor so shells don't share point positions
+    for (const s of shells) {
+      const pos = new Float32Array(s.count * 3);
+      for (let i = 0; i < s.count; i++) {
+        const theta = GraphScene.starRand(seed++) * Math.PI * 2;
+        const phi = Math.acos(2 * GraphScene.starRand(seed++) - 1);
+        const r = s.r0 + GraphScene.starRand(seed++) * (s.r1 - s.r0);
+        const sp = Math.sin(phi);
+        pos[i * 3] = Math.cos(theta) * r * sp;
+        pos[i * 3 + 1] = Math.sin(theta) * r * sp;
+        pos[i * 3 + 2] = Math.cos(phi) * r;
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+      const m = new THREE.PointsMaterial({
+        color: s.color,
+        size: s.size,
+        sizeAttenuation: false,
+        transparent: true,
+        opacity: s.op,
+        depthWrite: false,
+        fog: false,
+      });
+      const pts = new THREE.Points(g, m);
+      pts.frustumCulled = false;
+      group.add(pts);
+    }
+    return group;
   }
 
   // Recompute per-node position/color/size/alpha from the graph + style state.
@@ -398,8 +536,8 @@ export class GraphScene {
     const col = this.nodeGeom.getAttribute("a_color") as THREE.BufferAttribute;
     const siz = this.nodeGeom.getAttribute("a_size") as THREE.BufferAttribute;
     const alp = this.nodeGeom.getAttribute("a_alpha") as THREE.BufferAttribute;
+    const intn = this.nodeGeom.getAttribute("a_intensity") as THREE.BufferAttribute;
     const { hoveredNode, neighbors, tints, pulseId, pulseScale } = this.style;
-    const dim = parseRGBA(this.theme.starDim).color;
     const c = new THREE.Color();
 
     for (let i = 0; i < this.nodeIds.length; i++) {
@@ -411,6 +549,7 @@ export class GraphScene {
       c.set(a.color);
       let size = a.size;
       let alpha = a.hidden ? 0 : 1;
+      let inten = a.intensity;
 
       // live-ingest tint overrides colour
       const written = tints.get(id);
@@ -419,49 +558,59 @@ export class GraphScene {
         if (pulseId === id) size = a.size * pulseScale;
       }
 
-      // hover neighbourhood: hovered + neighbours stay lit, the rest dim+shrink
+      // hover neighbourhood: hovered + neighbours pop (full alpha + bloom); the
+      // rest stay VISIBLE for context (own colour, just faded + no bloom) instead
+      // of vanishing — so the cosmos and the camera orbit stay legible.
       if (hoveredNode && neighbors) {
-        if (id === hoveredNode) {
-          // keep
-        } else if (neighbors.has(id)) {
-          // neighbour — keep colour, slightly dimmer handled by fog/order
+        if (id === hoveredNode || neighbors.has(id)) {
+          // keep full colour / alpha / intensity
         } else {
-          c.copy(dim);
-          alpha = a.hidden ? 0 : 0.25;
+          alpha = a.hidden ? 0 : 0.5;
+          inten = 0; // non-neighbours must not bloom
         }
       }
+
 
       col.setXYZ(i, c.r, c.g, c.b);
       siz.setX(i, size);
       alp.setX(i, alpha);
+      intn.setX(i, a.hidden ? 0 : inten); // hidden cores must not bloom
     }
     pos.needsUpdate = true;
     col.needsUpdate = true;
     siz.needsUpdate = true;
     alp.needsUpdate = true;
+    intn.needsUpdate = true;
   }
 
   private writeEdges(): void {
     const pos = this.edgeGeom.getAttribute("position") as THREE.BufferAttribute;
     const col = this.edgeGeom.getAttribute("color") as THREE.BufferAttribute;
-    const base = parseRGBA(this.theme.edge).color;
-    const hi = parseRGBA(this.theme.edgeHi).color;
-    const bg = parseRGBA(this.theme.bg).color;
-    const { hoveredNode } = this.style;
+    const { hoveredNode, neighbors } = this.style;
+    const cs = new THREE.Color(); // reused per edge (no per-edge allocation)
+    const ct = new THREE.Color();
     for (let i = 0; i < this.edgePairs.length; i++) {
       const [s, t] = this.edgePairs[i];
       const sa = this.graph.getNodeAttributes(s);
       const ta = this.graph.getNodeAttributes(t);
       pos.setXYZ(i * 2, sa.x, sa.y, sa.z);
       pos.setXYZ(i * 2 + 1, ta.x, ta.y, ta.z);
-      let c = base;
+      // Each end takes its node's community colour → the cluster's edges glow its
+      // hue and inter-cluster edges gradient between the two ends (the neural
+      // mesh look). A brightness factor handles hover focus + timelapse hide.
+      cs.set(sa.color);
+      ct.set(ta.color);
+      let f = EDGE_BASE;
       if (hoveredNode) {
-        c = s === hoveredNode || t === hoveredNode ? hi : bg; // bg ⇒ invisible
+        const incident =
+          s === hoveredNode ||
+          t === hoveredNode ||
+          !!(neighbors && neighbors.has(s) && neighbors.has(t));
+        f = incident ? EDGE_HI : EDGE_DIM;
       }
-      // hidden endpoints (timelapse) ⇒ collapse to bg so the line vanishes
-      if (sa.hidden || ta.hidden) c = bg;
-      col.setXYZ(i * 2, c.r, c.g, c.b);
-      col.setXYZ(i * 2 + 1, c.r, c.g, c.b);
+      if (sa.hidden || ta.hidden) f = 0; // timelapse-hidden ⇒ vanish
+      col.setXYZ(i * 2, cs.r * f, cs.g * f, cs.b * f);
+      col.setXYZ(i * 2 + 1, ct.r * f, ct.g * f, ct.b * f);
     }
     pos.needsUpdate = true;
     col.needsUpdate = true;
@@ -530,8 +679,13 @@ export class GraphScene {
         obj.visible = id === hoveredNode;
         continue;
       }
-      // Hub-first: a label appears once its rendered core size clears the
-      // threshold — bigger (hub) nodes cross it first as you orbit closer.
+      // Declutter: only allow-set nodes (hubs + global top-N) label at rest.
+      // Within that set, still require the rendered core to clear a size gate so
+      // distant hubs stay quiet until you orbit toward them.
+      if (!this.labelable.has(id)) {
+        obj.visible = false;
+        continue;
+      }
       this.tmpVec.set(a.x, a.y, a.z);
       const dist = Math.max(1, this.camera.position.distanceTo(this.tmpVec));
       const renderedPx = (a.size * NODE_RADIUS * scale) / dist;
@@ -545,6 +699,9 @@ export class GraphScene {
     this.writeNodes();
     this.writeEdges();
     if (this.arrows.visible) this.writeArrows();
+    // Galaxies drift while the sim runs; refresh the gas every 12th tick (the
+    // centroid recompute is O(nodes) but visually stable, so per-frame is waste).
+    if ((this.nebulaTick = (this.nebulaTick + 1) % 12) === 0) this.nebula.update();
   }
 
   setStyleState(s: SceneStyleState): void {
@@ -567,6 +724,7 @@ export class GraphScene {
     this.nodeGeom.setAttribute("a_color", new THREE.BufferAttribute(new Float32Array(n * 3), 3));
     this.nodeGeom.setAttribute("a_size", new THREE.BufferAttribute(new Float32Array(n), 1));
     this.nodeGeom.setAttribute("a_alpha", new THREE.BufferAttribute(new Float32Array(n), 1));
+    this.nodeGeom.setAttribute("a_intensity", new THREE.BufferAttribute(new Float32Array(n), 1));
     this.points.geometry = this.nodeGeom;
     oldNodeGeom.dispose();
 
@@ -616,6 +774,13 @@ export class GraphScene {
       this.labels.set(id, obj);
     }
 
+    // Nebula: re-snapshot the (changed) node id set so new galaxies get gas.
+    this.nebula.setNodeIds(this.nodeIds);
+    // Pulses: re-snapshot the (changed) edge set so signals ride new links.
+    this.pulse.setEdges(this.edgePairs);
+    // Re-derive the label allow-set so live-ingest newcomers / new hubs can label.
+    this.computeLabelable();
+
     this.writeNodes();
     this.writeEdges();
     this.writeArrows();
@@ -624,14 +789,21 @@ export class GraphScene {
   applyTheme(theme: GraphTheme): void {
     this.theme = theme;
     const bg = parseRGBA(theme.bg).color;
-    this.scene.background = bg;
-    (this.scene.fog as THREE.FogExp2).color.copy(bg);
     const dark = bg.getHSL({ h: 0, s: 0, l: 0 }).l < 0.5;
-    this.baseBloom = dark ? 1.2 : 0.3;
-    this.bloom.strength = this.baseBloom * this.settings.brightness;
-    this.bloom.threshold = dark ? 0.0 : 0.6;
-    const edge = parseRGBA(theme.edge);
-    this.edgeMat.opacity = Math.min(1, edge.alpha * 3.5);
+    const sceneBg = dark ? new THREE.Color(0x05060d) : bg;
+    this.scene.background = sceneBg;
+    (this.scene.fog as THREE.FogExp2).color.copy(sceneBg);
+    this.baseBloom = dark ? 0.9 : 0.25;
+    this.bloom.strength = this.baseBloom; // brightness drives exposure, not bloom
+    this.bloom.threshold = dark ? 1.6 : 0.7;
+    this.bloom.radius = 0.4;
+    this.nodeMat.blending = dark ? THREE.AdditiveBlending : THREE.NormalBlending;
+    this.nodeMat.needsUpdate = true;
+    this.edgeMat.blending = dark ? THREE.AdditiveBlending : THREE.NormalBlending;
+    this.edgeMat.needsUpdate = true;
+    this.pulse.setDark(dark);
+    this.nebula.setDark(dark && SHOW_NEBULA);
+    this.edgeMat.opacity = Math.min(1, EDGE_OPACITY * this.settings.linkThickness);
     this.arrowMat.color.copy(parseRGBA(theme.edgeHi).color);
     for (const obj of this.labels.values()) {
       (obj.element as HTMLElement).style.color = theme.ink;
@@ -643,13 +815,13 @@ export class GraphScene {
 
   applySettings(settings: GraphSettings): void {
     this.settings = settings;
-    this.edgeMat.opacity = Math.min(
-      1,
-      parseRGBA(this.theme.edge).alpha * 3.5 * settings.linkThickness,
-    );
+    this.edgeMat.opacity = Math.min(1, EDGE_OPACITY * settings.linkThickness);
     // Brightness: overall exposure + bloom glow intensity.
+    // Brightness drives overall EXPOSURE only (applied by OutputPass at the end).
+    // Bloom strength stays fixed so raising brightness lifts the whole image
+    // without ballooning the core glow back into a white wash.
     this.renderer.toneMappingExposure = settings.brightness;
-    this.bloom.strength = this.baseBloom * settings.brightness;
+    this.bloom.strength = this.baseBloom;
     // Direction arrows: toggle visibility; re-place (also picks up linkThickness).
     this.arrows.visible = settings.arrows;
     if (settings.arrows) this.writeArrows();
@@ -713,8 +885,17 @@ export class GraphScene {
 
   start(): void {
     if (this.raf != null) return;
+    this.lastFrame = performance.now();
     const loop = (): void => {
+      const now = performance.now();
+      const dt = Math.min(0.1, (now - this.lastFrame) / 1000); // clamp tab-refocus jumps
+      this.lastFrame = now;
       this.controls.update();
+      // Life: signals flow along edges + stars breathe. Frozen for reduced-motion.
+      if (!this.reducedMotion) {
+        this.pulse.update(dt);
+        this.nodeMat.uniforms.u_time.value += dt;
+      }
       this.updateLabels();
       this.composer.render();
       this.labelRenderer.render(this.scene, this.camera);
@@ -746,9 +927,19 @@ export class GraphScene {
     this.arrows.dispose();
     this.arrowGeom.dispose();
     this.arrowMat.dispose();
-    (this.starfield.geometry as THREE.BufferGeometry).dispose();
-    (this.starfield.material as THREE.Material).dispose();
+    // Starfield is now a Group of shells — dispose each.
+    for (const child of this.starfield.children) {
+      const p = child as THREE.Points;
+      (p.geometry as THREE.BufferGeometry).dispose();
+      (p.material as THREE.Material).dispose();
+    }
+    this.nebula.dispose();
+    this.scene.remove(this.nebula.group);
+    this.pulse.dispose();
+    this.scene.remove(this.pulse.points);
     this.bloom.dispose();
+    this.composer.renderTarget1.dispose();
+    this.composer.renderTarget2.dispose();
     this.composer.dispose();
     this.renderer.dispose();
     el.remove();
@@ -820,6 +1011,12 @@ export class GraphScene {
       this.cb.onDrag(this.dragId, p.x, p.y, p.z);
       return;
     }
+    // Pointer held down but not dragging a star → the user is orbiting the
+    // camera. Don't run hover picking (it would dim the scene mid-rotate).
+    if (this.downAt) {
+      this.renderer.domElement.style.cursor = "grabbing";
+      return;
+    }
     const id = this.pickNode(e.clientX, e.clientY);
     this.renderer.domElement.style.cursor = id ? "pointer" : "grab";
     if (id !== this.hoverId) {
@@ -837,6 +1034,11 @@ export class GraphScene {
       this.dragMoved = false;
       this.controls.enabled = false; // don't orbit while dragging a star
       this.cb.onDragStart(id);
+    } else if (this.hoverId) {
+      // starting a camera orbit on empty space — drop the hover highlight so the
+      // scene isn't stuck dimmed while the user rotates.
+      this.hoverId = null;
+      this.cb.onNodeHover(null);
     }
   };
 
