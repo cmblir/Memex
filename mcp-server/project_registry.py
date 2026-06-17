@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import time
@@ -16,8 +17,14 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from pathlib import Path
 
-# 모듈 로드 시 PROJECT_ROOT 고정
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+# 모듈 로드 시 PROJECT_ROOT 고정.
+# When the MCP server ships bundled inside the desktop app, the script lives in
+# the (read-only) app resources, NOT next to the vault — so the data root is
+# passed in via MEMEX_PROJECT_ROOT. Fallback to the script-relative repo root
+# for running directly from a checkout.
+PROJECT_ROOT = Path(
+    os.environ.get("MEMEX_PROJECT_ROOT") or str(Path(__file__).resolve().parent.parent)
+).resolve()
 REGISTRY_FILE = PROJECT_ROOT / "projects.json"
 PROJECTS_DIR = PROJECT_ROOT / "projects"
 TEMPLATES_DIR = PROJECT_ROOT / "templates"

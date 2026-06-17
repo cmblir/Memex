@@ -262,20 +262,28 @@ pub fn open_external(url: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn mcp_registration_info(vault_path: String) -> McpRegInfo {
-    mcp_server::registration_info(&vault_path)
+pub fn mcp_registration_info(app: tauri::AppHandle, vault_path: String) -> McpRegInfo {
+    mcp_server::registration_info(&app, &vault_path)
 }
 
 #[tauri::command]
-pub async fn mcp_install(vault_path: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || mcp_server::install(&vault_path))
+pub async fn mcp_install(
+    app: tauri::AppHandle,
+    _vault_path: String,
+) -> Result<String, String> {
+    // vault_path is irrelevant to install (venv is vault-independent) but kept so
+    // the frontend call signature is unchanged.
+    tauri::async_runtime::spawn_blocking(move || mcp_server::install(&app))
         .await
         .map_err(|e| format!("join failed: {e}"))?
 }
 
 #[tauri::command]
-pub async fn mcp_register(vault_path: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || mcp_server::register(&vault_path))
+pub async fn mcp_register(
+    app: tauri::AppHandle,
+    vault_path: String,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || mcp_server::register(&app, &vault_path))
         .await
         .map_err(|e| format!("join failed: {e}"))?
 }

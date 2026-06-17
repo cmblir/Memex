@@ -27,7 +27,12 @@ from typing import Any
 
 # ─── locate repo + import the sibling project_registry module ────────────────
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+# Data root. Bundled in the desktop app, the script is in read-only resources,
+# so the vault path arrives via MEMEX_PROJECT_ROOT; otherwise fall back to the
+# script-relative repo root (running from a checkout). Must match project_registry.
+REPO_ROOT = Path(
+    os.environ.get("MEMEX_PROJECT_ROOT") or str(Path(__file__).resolve().parent.parent)
+).resolve()
 _THIS_DIR = Path(__file__).resolve().parent
 if str(_THIS_DIR) not in sys.path:
     sys.path.insert(0, str(_THIS_DIR))
