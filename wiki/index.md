@@ -1,10 +1,10 @@
 ---
+tags:
+  - meta
 title: Index
 type: overview
 created: 2026-04-26
-last_updated: 2026-06-14
-tags:
-  - meta
+last_updated: 2026-06-18
 ---
 
 # Wiki Index
@@ -39,4 +39,15 @@ All wiki pages, organized by type. Updated on every ingest.
 - [[transformer-decoder-only]] — decoder-only 트랜스포머 아키텍처
 
 ## Analyses
-_(none yet)_
+- [[lazyclaw-commit-history]] — lazyclaw 깃 히스토리(323 커밋, v3.99.29→6.3.1) 그룹 다이제스트
+
+---
+
+## lazyclaw (software project)
+
+A separate cluster from the LLM-training research above — engineering notes on the
+`lazyclaw` terminal-agent CLI, kept in `wiki/lazyclaw/`.
+
+- [[lazyclaw-overview]] — TUI-first Node CLI agent ($0 subscription learning + every-channel) in the claw family
+- [[lazyclaw-commit-history]] — grouped digest of 323 commits (v3.99.29 → 6.3.1, 2026-05-18 → 06-16)
+- [[source-lazyclaw-codebase-2026-06]] — repo + README/CHANGELOG snapshot (2026-06-18)
