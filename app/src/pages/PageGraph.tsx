@@ -159,6 +159,8 @@ export default function PageGraph({ t }: { t: Strings }): JSX.Element {
       nodeSize: s.nodeSize,
       starDim: theme.starDim,
       edgeColor: theme.edge,
+      // existingOnly hides non-existent files → also hide ghost link targets.
+      showGhosts: !s.existingOnly,
     });
     graphRef.current = graph;
     setCounts({ nodes: graph.order, edges: graph.size });

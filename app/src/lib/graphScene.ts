@@ -451,12 +451,14 @@ export class GraphScene {
     return height / 2 / Math.tan(fovRad / 2);
   }
 
-  // Allow-set of ids that may label at rest: every galaxy core (isHub) + the
-  // global top-N by degree. Recomputed on rebuild so live-ingest newcomers and
-  // newly-promoted hubs can label. Deterministic (deg desc, id tiebreak).
+  // Allow-set of ids that may label at rest: the global top-N by degree only.
+  // (The old rule also labelled every Louvain hub, which on a small or dense
+  // vault promoted nearly every node → overlapping label spam.) Recomputed on
+  // rebuild so live-ingest newcomers can label. Deterministic (deg desc, id
+  // tiebreak). Everything else still labels on hover.
   private computeLabelable(): void {
     this.labelable.clear();
-    const TOP_N = 24;
+    const TOP_N = 12;
     const byDeg = [...this.nodeIds].sort((a, b) => {
       const da = this.graph.getNodeAttribute(a, "deg");
       const db = this.graph.getNodeAttribute(b, "deg");
@@ -464,9 +466,6 @@ export class GraphScene {
     });
     for (let i = 0; i < Math.min(TOP_N, byDeg.length); i++) {
       this.labelable.add(byDeg[i]);
-    }
-    for (const id of this.nodeIds) {
-      if (this.graph.getNodeAttribute(id, "isHub")) this.labelable.add(id);
     }
   }
 

@@ -209,6 +209,9 @@ export interface BuildGraphOpts {
   // (colorByCommunity) override it for the rest.
   starDim: string;
   edgeColor: string; // rgba w/ alpha — sigma honors it
+  // Render unresolved [[links]] (targets with no file) as dim "ghost" nodes,
+  // like Obsidian. Off when existingOnly hides non-existent files.
+  showGhosts: boolean;
 }
 
 
@@ -379,9 +382,43 @@ export function buildGraph(
   }
   for (const p of allowed) ensure(p); // isolated/orphan nodes
 
-  // Star sizes + HDR intensity from a POWER-LAW degree distribution: a few huge,
-  // bright hub "cores" (galaxy centres that bloom) and many faint pinprick field
-  // stars — the spread that reads as a starfield rather than uniform confetti.
+  // Ghost nodes: [[wikilinks]] to files that don't exist. Obsidian draws these
+  // (dimmed) so the graph reflects link INTENT, not only resolved files —
+  // without them a vault full of links to not-yet-created notes looks sparse.
+  // Keyed by lowercased target so the same missing name from many pages merges
+  // into one node; the `ghost:` prefix can't collide with real file-path ids.
+  if (o.showGhosts) {
+    for (const [source, targets] of Object.entries(adjacency.unresolved)) {
+      if (!allowed.has(source)) continue;
+      ensure(source);
+      for (const t of targets) {
+        const gid = `ghost:${t.toLowerCase()}`;
+        if (!g.hasNode(gid)) {
+          const i = g.order;
+          const { x, y, z } = seededXYZ(gid, i);
+          g.addNode(gid, {
+            label: t,
+            x,
+            y,
+            z,
+            deg: 0,
+            size: 2,
+            color: o.starDim,
+            community: -1,
+            isHub: false,
+            intensity: 0,
+          });
+        }
+        if (!g.hasEdge(source, gid)) {
+          g.addEdge(source, gid, { color: o.edgeColor, size: 0.6 });
+        }
+      }
+    }
+  }
+
+  // Neural-mesh node treatment: nodes read like neurons — fairly uniform, all
+  // faintly lit, sitting ON a dense colored edge mesh that carries the visual
+  // weight. Degree gives a gentle hierarchy, NOT a few giant blazing cores.
   let maxDeg = 0;
   g.forEachNode((id) => {
     maxDeg = Math.max(maxDeg, g.degree(id));
@@ -391,13 +428,14 @@ export function buildGraph(
     const dn = maxDeg > 0 ? deg / maxDeg : 0;
     const jit = 1 + (seededUnit(id, 1) - 0.5) * 0.36; // ±18% per-star size jitter
     g.setNodeAttribute(id, "deg", deg);
-    // Modest size hierarchy (neural-mesh look): nodes are small-to-medium and
-    // sit ON the colored edge mesh; hubs are only ~5× a leaf, not giant blobs.
-    // The visual weight comes from the edges, not huge points.
-    g.setNodeAttribute(id, "size", (1.0 + Math.pow(dn, 0.8) * 4) * o.nodeSize * jit);
-    // Steep HDR intensity: crosses the bloom threshold ONLY for the top hubs
-    // (dn≈1 → 5.0 blazes; dn<~0.35 → <1, no bloom). The #1 lever vs uniformity.
-    g.setNodeAttribute(id, "intensity", Math.pow(dn, 2.4) * 5.0);
+    // Compressed size hierarchy (sqrt-ish): a hub is ~3.5× a leaf, not 5×+, so a
+    // super-hub (an index/MOC linking everything) never balloons over the mesh.
+    g.setNodeAttribute(id, "size", (0.9 + Math.pow(dn, 0.6) * 2.2) * o.nodeSize * jit);
+    // HDR intensity with a HARD CAP: every node carries a faint baseline glow
+    // (neural look), only the top ~quarter cross the bloom threshold (≈1.6), and
+    // even the #1 hub is capped at 2.2 — so "index" gently glows instead of
+    // detonating into a white puff that swallows the screen.
+    g.setNodeAttribute(id, "intensity", Math.min(2.2, 0.35 + Math.pow(dn, 1.4) * 2.2));
   });
   // Colour by community hue + star temperature; store community id + hub flag
   // (needs the degree normalisation above, so it runs AFTER the size pass).

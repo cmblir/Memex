@@ -130,29 +130,38 @@ export function createSim(
     l.source.community >= 0 &&
     l.source.community === l.target.community;
 
-  // Per-link strength, degree-normalized (d3's native rule), then weakened for
-  // inter-galaxy links so communities pull apart into distinct galaxies.
+  // clusterForce 0 → NEURAL-MESH mode: a homogeneous 4-force layout (link +
+  // uncapped charge + uniform gravity + collide), exactly Obsidian's model,
+  // which has NO community-clustering force. Nodes spread into one even, organic
+  // 3D web. clusterForce > 0 → GALAXY mode: the per-community link split, the
+  // weak/clustered gravity split and the centroid pull below all switch on and
+  // contract Louvain communities into separated galaxies.
+  // Per-link strength, degree-normalized (d3's native rule). In galaxy mode
+  // inter-community links are weakened so communities pull apart.
   const linkStrength = (l: SimLink): number => {
     const sN = typeof l.source === "object" ? l.source.deg : 1;
     const tN = typeof l.target === "object" ? l.target.deg : 1;
     const base = cur.linkForce / (1 + Math.min(sN, tN));
-    return base * (sameComm(l) ? 1 : INTER_LINK_STR_MUL);
+    return cur.clusterForce > 0 && !sameComm(l) ? base * INTER_LINK_STR_MUL : base;
   };
-  // Intra-galaxy links stay short (leaves hug their hub); inter-galaxy links sit
-  // far apart (the dark voids between galaxies).
+  // Mesh mode: every edge is one uniform ideal length → an even web. Galaxy
+  // mode: intra-galaxy links stay short, inter-galaxy links sit ~6× apart (voids).
   const linkDist = (l: SimLink): number =>
-    sameComm(l) ? cur.linkDistance : cur.linkDistance * INTER_LINK_DIST_MUL;
+    cur.clusterForce > 0 && !sameComm(l)
+      ? cur.linkDistance * INTER_LINK_DIST_MUL
+      : cur.linkDistance;
   const centerOf = (g: GraphSettings): number =>
     Math.max(0.005, g.centerForce * CENTER_SCALE);
-  // Galaxy nodes feel weak global gravity (the cluster force holds them); orphans
-  // feel even weaker gravity so the uncapped charge flings them OUT to a sparse
-  // halo instead of piling them in the centre. The spring (∝r) still beats the
-  // 1/r² charge at large r, so the halo stays finite — nothing drifts to ∞.
+  // Mesh mode: ONE uniform gentle gravity for every node → an even cloud held
+  // together against the uncapped charge (the spring/charge balance keeps it
+  // finite). Galaxy mode: clustered nodes feel weak gravity (the cluster force
+  // holds them) and orphans feel the weakest, so charge flings them to a halo.
   const gravityOf =
     (g: GraphSettings) =>
     (n: SimNode): number =>
-      centerOf(g) *
-      (n.community >= 0 ? CLUSTERED_GRAVITY_MUL : ORPHAN_GRAVITY_MUL);
+      g.clusterForce > 0
+        ? centerOf(g) * (n.community >= 0 ? CLUSTERED_GRAVITY_MUL : ORPHAN_GRAVITY_MUL)
+        : centerOf(g);
 
   const linkF = forceLink<SimNode, SimLink>(links)
     .id((d) => d.id)
