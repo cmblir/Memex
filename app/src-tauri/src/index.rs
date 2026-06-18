@@ -19,21 +19,27 @@ pub fn build_link_graph(root: &str) -> Result<Adjacency, String> {
     let root_path = Path::new(root)
         .canonicalize()
         .map_err(|e| format!("canonicalize failed for {root}: {e}"))?;
-    let files = collect_markdown(&root_path).map_err(|e| format!("walk failed: {e}"))?;
-    let stems = build_stem_index(&files);
+    let (sources, linkables) =
+        collect_files(&root_path).map_err(|e| format!("walk failed: {e}"))?;
+    let names = build_name_index(&linkables);
 
     let mut adj = Adjacency::default();
-    for file in &files {
+    for file in &sources {
         let raw = std::fs::read_to_string(file).map_err(|e| format!("read {file:?}: {e}"))?;
-        ingest_links(file, &raw, &stems, &mut adj);
+        ingest_links(file, &raw, &names, &mut adj);
         ingest_tags(file, &raw, &mut adj);
     }
 
     Ok(adj)
 }
 
-fn collect_markdown(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
-    let mut out = Vec::new();
+/// Walk the vault once. `sources` = `.md` files (parsed for `[[wikilinks]]` and
+/// tags). `linkables` = `.md` + `.base` — everything a wikilink may resolve to,
+/// because Obsidian Bases (`.base`) are linked by name and otherwise leave a
+/// large fraction of links unresolved (so their notes look like orphans).
+fn collect_files(dir: &Path) -> std::io::Result<(Vec<PathBuf>, Vec<PathBuf>)> {
+    let mut sources = Vec::new();
+    let mut linkables = Vec::new();
     let mut stack = vec![dir.to_path_buf()];
     while let Some(d) = stack.pop() {
         for entry in std::fs::read_dir(&d)? {
@@ -44,13 +50,21 @@ fn collect_markdown(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
             let p = e.path();
             if p.is_dir() {
                 stack.push(p);
-            } else if p.extension().and_then(|s| s.to_str()) == Some("md") {
-                out.push(p);
+                continue;
+            }
+            match p.extension().and_then(|s| s.to_str()) {
+                Some("md") => {
+                    sources.push(p.clone());
+                    linkables.push(p);
+                }
+                Some("base") => linkables.push(p),
+                _ => {}
             }
         }
     }
-    out.sort();
-    Ok(out)
+    sources.sort();
+    linkables.sort();
+    Ok((sources, linkables))
 }
 
 fn is_hidden_name(name: &std::ffi::OsStr) -> bool {
@@ -58,17 +72,24 @@ fn is_hidden_name(name: &std::ffi::OsStr) -> bool {
         .is_some_and(|s| s.starts_with('.') || s == "node_modules" || s == "target")
 }
 
-fn build_stem_index(files: &[PathBuf]) -> HashMap<String, PathBuf> {
-    let mut idx = HashMap::with_capacity(files.len());
+/// Index every linkable file by BOTH its lowercased stem (`note`) and its full
+/// lowercased basename (`note.md` / `x.base`). Obsidian links `.md` notes by
+/// stem but Bases by full name (`[[X.base]]`), so a wikilink target must be
+/// matchable in either form.
+fn build_name_index(files: &[PathBuf]) -> HashMap<String, PathBuf> {
+    let mut idx = HashMap::with_capacity(files.len() * 2);
     for f in files {
         if let Some(stem) = f.file_stem().and_then(|s| s.to_str()) {
             idx.insert(stem.to_lowercase(), f.clone());
+        }
+        if let Some(name) = f.file_name().and_then(|s| s.to_str()) {
+            idx.insert(name.to_lowercase(), f.clone());
         }
     }
     idx
 }
 
-fn ingest_links(file: &Path, text: &str, stems: &HashMap<String, PathBuf>, adj: &mut Adjacency) {
+fn ingest_links(file: &Path, text: &str, names: &HashMap<String, PathBuf>, adj: &mut Adjacency) {
     let source = file.to_string_lossy().into_owned();
     // Dedup per source so a page that links the same target twice produces one
     // edge — otherwise forward/backward lists (and the link counts derived from
@@ -76,7 +97,10 @@ fn ingest_links(file: &Path, text: &str, stems: &HashMap<String, PathBuf>, adj: 
     let mut seen_resolved: HashSet<String> = HashSet::new();
     let mut seen_unresolved: HashSet<String> = HashSet::new();
     for target in parser::parse_links_from_text(text) {
-        match stems.get(&target.to_lowercase()) {
+        // Drop any `#heading` / `#^block` suffix — Obsidian resolves
+        // `[[Note#Section]]` to the note itself.
+        let key = target.split('#').next().unwrap_or(&target).trim().to_lowercase();
+        match names.get(&key) {
             Some(resolved) => {
                 let target_path = resolved.to_string_lossy().into_owned();
                 if !seen_resolved.insert(target_path.clone()) {
@@ -187,5 +211,23 @@ mod tests {
         let src = src.to_string_lossy().into_owned();
         assert_eq!(adj.forward.get(&src).map(Vec::len), Some(1));
         assert_eq!(adj.unresolved.get(&src).map(Vec::len), Some(1));
+    }
+
+    #[test]
+    fn resolves_base_by_full_name_and_strips_heading() {
+        let dir = temp_vault("base");
+        fs::write(dir.join("note.md"), "[[Data.base]] and [[Other#Section]]").unwrap();
+        fs::write(dir.join("Data.base"), "filters: []\n").unwrap();
+        fs::write(dir.join("Other.md"), "x").unwrap();
+        let adj = build_link_graph(dir.to_str().unwrap()).unwrap();
+        let src = dir
+            .join("note.md")
+            .canonicalize()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        // Data.base resolves by full name; Other resolves after stripping #Section.
+        assert_eq!(adj.forward.get(&src).map(Vec::len), Some(2));
+        assert!(adj.unresolved.is_empty());
     }
 }
