@@ -125,6 +125,15 @@ pub fn save(settings: &Settings) -> Result<(), String> {
     std::fs::write(&path, raw).map_err(|e| format!("write settings: {e}"))
 }
 
+/// Record the vault the app currently has open into a marker file the bundled
+/// MCP server reads (project_registry.py `_active_vault`). The stdio MCP server
+/// has no live IPC link back to the app, so this file is how it follows the
+/// user's current vault selection instead of writing into the source-repo root.
+pub fn set_active_vault(path: &str) -> Result<(), String> {
+    let f = settings_dir()?.join("active-vault");
+    std::fs::write(&f, path).map_err(|e| format!("write active-vault: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

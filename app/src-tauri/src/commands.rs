@@ -17,7 +17,12 @@ use crate::vault::{self, FileContent, FileNode, VaultMeta};
 
 #[tauri::command]
 pub fn open_vault(path: String) -> Result<VaultMeta, String> {
-    vault::open_vault(&path)
+    let meta = vault::open_vault(&path)?;
+    // Record the active vault so the bundled MCP server follows the app's
+    // current selection (best-effort: a marker write failure must not block
+    // opening the vault).
+    let _ = settings::set_active_vault(&path);
+    Ok(meta)
 }
 
 #[tauri::command]

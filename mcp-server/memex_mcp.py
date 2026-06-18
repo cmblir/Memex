@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import json
 import math
-import os
 import re
 import subprocess
 import sys
@@ -27,17 +26,16 @@ from typing import Any
 
 # ─── locate repo + import the sibling project_registry module ────────────────
 
-# Data root. Bundled in the desktop app, the script is in read-only resources,
-# so the vault path arrives via MEMEX_PROJECT_ROOT; otherwise fall back to the
-# script-relative repo root (running from a checkout). Must match project_registry.
-REPO_ROOT = Path(
-    os.environ.get("MEMEX_PROJECT_ROOT") or str(Path(__file__).resolve().parent.parent)
-).resolve()
+# Data root resolution lives in project_registry (active-vault marker → env →
+# checkout fallback). Import the sibling module first, then mirror its
+# PROJECT_ROOT so both modules agree on exactly one vault location.
 _THIS_DIR = Path(__file__).resolve().parent
 if str(_THIS_DIR) not in sys.path:
     sys.path.insert(0, str(_THIS_DIR))
 
 import project_registry  # type: ignore  # noqa: E402
+
+REPO_ROOT = project_registry.PROJECT_ROOT
 
 # ─── MCP SDK ─────────────────────────────────────────────────────────────────
 

@@ -12,6 +12,7 @@ import json
 import os
 import re
 import shutil
+import sys
 import time
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
@@ -19,12 +20,55 @@ from pathlib import Path
 
 # 모듈 로드 시 PROJECT_ROOT 고정.
 # When the MCP server ships bundled inside the desktop app, the script lives in
-# the (read-only) app resources, NOT next to the vault — so the data root is
-# passed in via MEMEX_PROJECT_ROOT. Fallback to the script-relative repo root
-# for running directly from a checkout.
-PROJECT_ROOT = Path(
-    os.environ.get("MEMEX_PROJECT_ROOT") or str(Path(__file__).resolve().parent.parent)
-).resolve()
+# the (read-only) app resources, NOT next to the vault — and the stdio server
+# has no live IPC link back to the app. So the data root is resolved, in order:
+#   1. the desktop app's "active vault" marker — the vault the app currently
+#      has open (the app rewrites it on every open_vault). This makes the MCP
+#      server FOLLOW the app instead of writing into the source-repo root.
+#   2. MEMEX_PROJECT_ROOT env — explicit override for CLI / dev / a pinned setup
+#      (used when no app marker exists, e.g. headless).
+#   3. script-relative repo root — running directly from a checkout.
+
+
+def _app_data_dir() -> Path:
+    """Per-user app data dir — must mirror the Rust app's settings_dir()
+    (app/src-tauri/src/settings.rs) so we read the marker the app writes."""
+    override = os.environ.get("MEMEX_DATA_DIR")
+    if override:
+        return Path(override)
+    home = Path(os.path.expanduser("~"))
+    if sys.platform == "darwin":
+        return home / "Library" / "Application Support" / "dev.cmblir.memex"
+    if os.name == "nt":
+        appdata = os.environ.get("APPDATA")
+        return Path(appdata) / "Memex" if appdata else home / "Memex"
+    return home / ".config" / "memex"
+
+
+def _active_vault() -> Path | None:
+    """Absolute path the app wrote to <data dir>/active-vault (one line)."""
+    try:
+        f = _app_data_dir() / "active-vault"
+        if f.is_file():
+            p = f.read_text("utf-8").strip()
+            if p and Path(p).is_dir():
+                return Path(p)
+    except Exception:
+        return None
+    return None
+
+
+def _resolve_project_root() -> Path:
+    av = _active_vault()  # 1. follow the app's current vault
+    if av:
+        return av.resolve()
+    env = os.environ.get("MEMEX_PROJECT_ROOT")  # 2. explicit override
+    if env:
+        return Path(env).resolve()
+    return Path(__file__).resolve().parent.parent  # 3. checkout fallback
+
+
+PROJECT_ROOT = _resolve_project_root()
 REGISTRY_FILE = PROJECT_ROOT / "projects.json"
 PROJECTS_DIR = PROJECT_ROOT / "projects"
 TEMPLATES_DIR = PROJECT_ROOT / "templates"
