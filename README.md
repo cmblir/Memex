@@ -120,11 +120,11 @@ bash mcp-server/install.sh    # MCP server for Claude Desktop/Code
 <table>
 <tr>
 <td width="50%"><img src="docs/screenshots/overview.png" alt="Overview — vault stats, jump-back cards, recent git activity" /></td>
-<td width="50%"><img src="docs/screenshots/graph.png" alt="Graph — three.js + d3-force-3d link graph, colored by community" /></td>
+<td width="50%"><img src="docs/screenshots/provenance.png" alt="Provenance — per-page citation coverage with a threshold flag and a Run lint button" /></td>
 </tr>
 <tr>
 <td align="center"><sub><strong>Overview</strong> — stats, jump-back, recent activity</sub></td>
-<td align="center"><sub><strong>Graph</strong> — community-colored link graph</sub></td>
+<td align="center"><sub><strong>Provenance</strong> — citation coverage per page</sub></td>
 </tr>
 <tr>
 <td width="50%"><img src="docs/screenshots/reader.png" alt="Reader — CodeMirror source, live markdown preview, backlinks" /></td>

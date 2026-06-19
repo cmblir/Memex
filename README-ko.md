@@ -117,11 +117,11 @@ bash mcp-server/install.sh    # Claude Desktop/Code용 MCP 서버
 <table>
 <tr>
 <td width="50%"><img src="docs/screenshots/overview.png" alt="Overview — vault 통계, 점프백 카드, 최근 git 활동" /></td>
-<td width="50%"><img src="docs/screenshots/graph.png" alt="Graph — three.js + d3-force-3d 링크 그래프, 커뮤니티별 색상" /></td>
+<td width="50%"><img src="docs/screenshots/provenance.png" alt="Provenance — 페이지별 인용 커버리지, 임계값 플래그 + Run lint" /></td>
 </tr>
 <tr>
 <td align="center"><sub><strong>Overview</strong> — 통계 · 점프백 · 최근 활동</sub></td>
-<td align="center"><sub><strong>Graph</strong> — 커뮤니티별 색상 링크 그래프</sub></td>
+<td align="center"><sub><strong>Provenance</strong> — 페이지별 인용 커버리지</sub></td>
 </tr>
 <tr>
 <td width="50%"><img src="docs/screenshots/reader.png" alt="Reader — CodeMirror 소스, 라이브 프리뷰, 백링크" /></td>
