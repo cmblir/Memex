@@ -33,9 +33,9 @@ Your knowledge compounds — in plain markdown you own.
 
 <br />
 
-<img src="docs/screenshots/hero-graph.png" width="100%" alt="Memex knowledge graph — thousands of cross-linked notes clustered into colored communities" />
+<img src="docs/screenshots/hero-mesh.png" width="100%" alt="Memex knowledge graph — a ~10,000-note vault rendered as a 3D neural mesh of glowing, community-colored stars" />
 
-<sub><em>A Memex vault as a knowledge galaxy — every note a glowing star.</em></sub>
+<sub><em>A real Memex render — ~10,000 notes as a 3D neural mesh. Every note a glowing star, every <code>[[wikilink]]</code> a filament, each community its own colour with a faint dust halo.</em></sub>
 
 </div>
 
@@ -110,9 +110,9 @@ bash mcp-server/install.sh    # MCP server for Claude Desktop/Code
 ## Screenshots
 
 <p align="center">
-<img src="docs/screenshots/graph-drag.gif" width="100%" alt="Dragging a node in the Memex graph — the d3-force simulation pulls its neighbours along, then springs back to rest" />
+<img src="docs/screenshots/mesh.gif" width="100%" alt="The Memex 3D neural-mesh graph slowly auto-orbiting — glowing community-colored stars, wikilink filaments and faint dust haze" />
 <br/>
-<sub><em>The real Graph page: grab a node and the d3-force simulation re-heats — its neighbours follow, the rest dims, and on release everything springs back to rest (just like Obsidian).</em></sub>
+<sub><em>The Graph view rendering a ~10,000-note vault as a 3D neural mesh — glowing community-colored stars, <code>[[wikilink]]</code> filaments and faint cosmic-dust haze, idling on a slow auto-orbit. Grab any star and the d3-force-3d sim re-heats; its neighbours follow and spring back on release.</em></sub>
 </p>
 
 <br/>
@@ -120,7 +120,7 @@ bash mcp-server/install.sh    # MCP server for Claude Desktop/Code
 <table>
 <tr>
 <td width="50%"><img src="docs/screenshots/overview.png" alt="Overview — vault stats, jump-back cards, recent git activity" /></td>
-<td width="50%"><img src="docs/screenshots/graph.png" alt="Graph — sigma.js + d3-force link graph, colored by community" /></td>
+<td width="50%"><img src="docs/screenshots/graph.png" alt="Graph — three.js + d3-force-3d link graph, colored by community" /></td>
 </tr>
 <tr>
 <td align="center"><sub><strong>Overview</strong> — stats, jump-back, recent activity</sub></td>
@@ -163,15 +163,17 @@ A chat surface that answers questions about your wiki. The active **query model*
 
 ### Graph
 
-Full vault link graph rendered as a **3D universe** with **three.js** (WebGL) over a **d3-force-3d** layout — the same force family Obsidian uses (`forceLink` + `forceManyBody` + `forceX/Y/Z` + collision), with each link's strength normalised by node degree so leaves hug their hub and clusters drift apart into separated radial "dandelions". Nodes are glowing stars, edges are `[[wikilinks]]` drawn as faint filaments; hubs grow with link count, and labels fade in hub-first as you orbit closer — just like Obsidian. **Every note can be shown, including link-less orphans** (toggle *Show orphans* in the drawer).
+Full vault link graph rendered as a **3D neural mesh** with **three.js** (WebGL) over a **d3-force-3d** layout — the same force family Obsidian uses (`forceLink` + `forceManyBody` + `forceX/Y/Z` + collision), with each link's strength normalised by node degree. By default there is **no community-clustering force** (exactly Obsidian's model), so notes spread into one even, organic web rather than a few clumps. Nodes are glowing stars, edges are `[[wikilinks]]` drawn as faint community-colored filaments, and a faint **cosmic-dust haze** hangs around each dense cluster. Node glow is power-law and **hard-capped**, so even an `index`/MOC that links to everything stays a bright star instead of a white blob. **Every note is shown, including link-less orphans**, and unresolved links to not-yet-written notes appear as dim **ghost nodes** — just like Obsidian (toggle *Show orphans* / *Existing files only* in the drawer).
 
-**Drag to orbit** the camera around the cluster and scroll to zoom; the galaxy idles with a slow auto-rotate. **Grab a star and the simulation re-heats** — its neighbours follow in 3D and it springs back on release. Glowing nodes (UnrealBloom), depth fog and a drifting starfield sell the deep-space look, and a **Brightness** slider in the drawer tunes the glow. The file tree and graph **auto-refresh** when files change outside the app (edits in Obsidian/Finder, or a finished ingest).
+Link resolution matches Obsidian: `[[note]]`, `[[note|alias]]`, `[[note#heading]]`, `![[embeds]]`, and links to non-`.md` files such as Obsidian **Bases** (`[[Table.base]]`) all resolve, so the graph reflects your real link web instead of dropping half of it.
+
+**Drag to orbit** the camera and scroll to zoom (now far enough out to frame even a large, spread vault); the mesh idles with a slow auto-rotate. **Grab a star and the simulation re-heats** — its neighbours follow in 3D and it springs back on release. Glowing nodes (UnrealBloom), depth fog and signal **pulses travelling along the edges** sell the alive, deep-space look, and a **Brightness** slider tunes the glow. The file tree and graph **auto-refresh** when files change outside the app (edits in Obsidian/Finder, or a finished ingest).
 
 A right-side settings drawer (gear icon) mirrors Obsidian's panel:
 
 - **Filters** — live search by filename, tag chips, folder dropdown, toggles for *Show orphans* and *Existing files only*.
-- **Display** — *Arrows*, *Text fade threshold*, *Node size*, *Link thickness*, and a **▶ Play timelapse** button.
-- **Forces** — *Center force*, *Repel force*, *Link force*, *Link distance*. Each slider drives a real d3-force parameter.
+- **Display** — *Arrows*, *Text fade threshold*, *Node size*, *Link thickness*, *Brightness*, and a **▶ Play timelapse** button.
+- **Forces** — *Center force*, *Repel force*, *Link force*, *Link distance*, and *Cluster force* (0 = even neural mesh ↔ higher = communities contract into separated "galaxies"). Each slider drives a real d3-force-3d parameter.
 
 **Timelapse** (toolbar ▶ or the drawer button) reveals notes oldest-to-newest by file mtime at their settled positions — edges appear as each note connects up, so you watch the graph build itself in the order you actually wrote it. It's a pure reveal (no physics), so it stays smooth on any vault size, and the camera holds steady on the whole graph.
 
@@ -248,8 +250,10 @@ Right-click any tree node for **New note / New folder / Rename / Delete**. Cmd-K
 
 The desktop app exposes everything from inside its UI, but you may want the same vault accessible from **Claude Desktop / Claude Code** sessions running elsewhere. That's what the MCP server does.
 
+**Easiest path — let the app do it.** The desktop app **bundles the MCP server and registers it for you**: open **Settings → MCP**, click *Install* (creates a private Python venv in the app's data dir) then *Register* (runs `claude mcp add` for you). The server then **follows whichever vault the app currently has open** — it reads an `active-vault` marker the app rewrites on every vault switch, so changing vaults in the app redirects MCP reads/writes automatically, with no re-registration. The manual steps below are for driving the server from a from-source checkout.
+
 <details>
-<summary><b>4-step MCP setup wizard</b></summary>
+<summary><b>4-step MCP setup wizard (from source)</b></summary>
 
 #### Step 1 — Install the server
 
