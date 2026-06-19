@@ -42,7 +42,7 @@ const EDGE_DIM = 0.1; // non-incident edges on hover (fade, not vanish)
 
 // Reference look is a clean neural mesh on a calm void — gas + background star
 // dots muddy it. Kept wired but off; flip to re-enable.
-const SHOW_NEBULA = false;
+const SHOW_NEBULA = true;
 const SHOW_STARFIELD = false;
 
 export interface GraphSceneCallbacks {
@@ -237,9 +237,12 @@ export class GraphScene {
     this.scene.background = sceneBg;
     // Graded atmospheric depth (lower than the old 0.00065 so far parallax star
     // shells fade in instead of being fogged out).
-    this.scene.fog = new THREE.FogExp2(sceneBg.getHex(), dark ? 0.00012 : 0.00009);
+    // Light fog for depth, but thin enough that the whole graph stays visible
+    // when zoomed all the way out (a denser fog faded large vaults to black).
+    this.scene.fog = new THREE.FogExp2(sceneBg.getHex(), dark ? 0.00005 : 0.00004);
 
-    this.camera = new THREE.PerspectiveCamera(58, w / h, 0.5, 8000);
+    // far plane large enough to hold a wide, fully-zoomed-out layout.
+    this.camera = new THREE.PerspectiveCamera(58, w / h, 0.5, 40000);
     this.camera.position.set(0, 0, 900);
 
     this.renderer = new THREE.WebGLRenderer({
@@ -271,8 +274,8 @@ export class GraphScene {
     this.controls.dampingFactor = 0.08;
     this.controls.rotateSpeed = 0.7;
     this.controls.zoomSpeed = 0.9;
-    this.controls.minDistance = 30;
-    this.controls.maxDistance = 5000;
+    this.controls.minDistance = 8; // closer zoom-in
+    this.controls.maxDistance = 30000; // far zoom-out for large / spread-out vaults
     this.controls.autoRotate = !this.reducedMotion;
     this.controls.autoRotateSpeed = 0.35;
 

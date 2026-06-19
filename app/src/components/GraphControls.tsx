@@ -250,8 +250,8 @@ export default function GraphControls({
           label={t.gr_repel_force ?? "Repel force"}
           value={settings.repelForce}
           min={0}
-          max={20}
-          step={0.1}
+          max={50}
+          step={0.5}
           onChange={(v) => onChange({ repelForce: v })}
         />
         <Slider
