@@ -35,10 +35,15 @@ const PICK_BASE_PX = 14;
 // colour (intra-cluster edges glow the cluster hue, inter-cluster edges gradient
 // between the two), and the additive sum of a dense cluster's many edges builds
 // the glow. These are per-end brightness multipliers on that colour.
-const EDGE_OPACITY = 0.55; // base material opacity (× linkThickness)
-const EDGE_BASE = 0.6; // default per-end brightness
+// Edges are faint connective tissue, NOT a light source: on a 10k-node vault the
+// additive sum of tens of thousands of bright edges floods the core to a white
+// wash and drowns the star colours. Kept dim so the bright NODES (and hub cores)
+// carry the light and the web only hints the weave between lobes — the galaxy/
+// brain reads as points of light threaded on a faint mesh, not a glowing blob.
+const EDGE_OPACITY = 0.2; // base material opacity (× linkThickness)
+const EDGE_BASE = 0.32; // default per-end brightness
 const EDGE_HI = 1.15; // incident edges on hover (pop)
-const EDGE_DIM = 0.1; // non-incident edges on hover (fade, not vanish)
+const EDGE_DIM = 0.06; // non-incident edges on hover (fade, not vanish)
 
 // Reference look is a clean neural mesh on a calm void — gas + background star
 // dots muddy it. Kept wired but off; flip to re-enable.

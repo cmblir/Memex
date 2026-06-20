@@ -29,16 +29,24 @@ const TOPICS = [
   "hallucination", "benchmark", "evaluation", "dataset", "data-curation",
 ];
 
-// A vault-shaped link graph: ~70 topic hubs ("maps of content"), each with a
-// burst of leaf notes that link back to it (→ a bright high-degree core +
-// orbiting leaves), inter-hub filaments, a sprinkle of cross-community mesh
-// links, and a few unresolved "ghost" links to not-yet-written notes.
+// A vault-shaped link graph: ~70 topic hubs ("maps of content"), each a dense,
+// INTERWOVEN cluster of notes. The notes don't just hang off their hub (that
+// draws as a radial firework); they cross-link to each other WITHIN the cluster
+// (an entangled neural mesh per lobe) and to a few nearby clusters (inter-lobe
+// tracts), so the whole thing relaxes into one interconnected brain/galaxy
+// instead of a field of separate star-bursts. Plus unresolved "ghost" links.
 function buildSyntheticVault(): { adjacency: Adjacency; allFiles: string[] } {
   const forward: Record<string, string[]> = {};
   const unresolved: Record<string, string[]> = {};
   const files: string[] = [];
   const hubs = TOPICS.map((t) => `${t}.md`);
-  const allLeaves: string[] = [];
+  // Leaves grouped by their topic index, so intra-cluster weaving can pick
+  // same-lobe partners (a tight neural knot) and inter-cluster tracts can reach
+  // a NEIGHBOURING topic rather than a random far one.
+  const leavesByTopic: string[][] = TOPICS.map(() => []);
+  const link = (a: string, b: string): void => {
+    if (a !== b) (forward[a] ??= []).push(b);
+  };
   for (const h of hubs) files.push(h);
 
   for (let hi = 0; hi < hubs.length; hi++) {
@@ -48,35 +56,54 @@ function buildSyntheticVault(): { adjacency: Adjacency; allFiles: string[] } {
     for (let k = 0; k < leafCount; k++) {
       const leaf = `${topic}-${k}.md`;
       files.push(leaf);
-      allLeaves.push(leaf);
-      (forward[leaf] ??= []).push(hub); // leaf → its hub
-      if (Math.random() < 0.08) {
-        // cross-community mesh link to a random hub
-        const other = hubs[Math.floor(Math.random() * hubs.length)];
-        if (other !== hub) forward[leaf].push(other);
-      }
+      leavesByTopic[hi].push(leaf);
+      link(leaf, hub); // leaf → its hub (the cluster spine)
       if (Math.random() < 0.05) {
         // ghost link → not-yet-created note (renders as a dim ghost node)
         (unresolved[leaf] ??= []).push(`todo-${topic}-${k}`);
       }
     }
   }
-  // inter-hub filaments: each hub links to 2..4 other hubs.
-  for (const hub of hubs) {
+
+  // --- intra-cluster weave: every leaf threads to 1–3 SIBLINGS in its own lobe.
+  // This is what turns each hub-and-spokes star into an entangled neural knot —
+  // the dominant edge population, so clusters read as woven tissue, not spikes.
+  for (const sibs of leavesByTopic) {
+    if (sibs.length < 3) continue;
+    for (const leaf of sibs) {
+      const n = 1 + Math.floor(Math.random() * 3); // 1..3 sibling threads
+      for (let i = 0; i < n; i++) {
+        link(leaf, sibs[Math.floor(Math.random() * sibs.length)]);
+      }
+    }
+  }
+
+  // --- inter-cluster tracts: ~14% of leaves reach into a NEARBY topic's cluster
+  // (wrap-around neighbour window), weaving adjacent lobes together so the galaxy
+  // is one connected web with visible bridges, not isolated blobs.
+  for (let hi = 0; hi < leavesByTopic.length; hi++) {
+    for (const leaf of leavesByTopic[hi]) {
+      if (Math.random() >= 0.14) continue;
+      const step = 1 + Math.floor(Math.random() * 6); // reach 1..6 topics over
+      const oj = (hi + (Math.random() < 0.5 ? -step : step) + TOPICS.length) % TOPICS.length;
+      const pool = leavesByTopic[oj];
+      // half the tracts land on the neighbour's hub (a strong bridge), half on a
+      // random member (a faint capillary).
+      link(leaf, Math.random() < 0.5 || pool.length === 0 ? hubs[oj] : pool[Math.floor(Math.random() * pool.length)]);
+    }
+  }
+
+  // --- hub backbone: each hub links to 2..4 other hubs → the bright core lattice.
+  for (let hi = 0; hi < hubs.length; hi++) {
     const n = 2 + Math.floor(Math.random() * 3);
     const targets = new Set<string>();
     for (let i = 0; i < n; i++) {
-      const o = hubs[Math.floor(Math.random() * hubs.length)];
-      if (o !== hub) targets.add(o);
+      const o = Math.floor(Math.random() * hubs.length);
+      if (o !== hi) targets.add(hubs[o]);
     }
-    (forward[hub] ??= []).push(...targets);
+    (forward[hubs[hi]] ??= []).push(...targets);
   }
-  // a few leaf↔leaf mesh threads for weave between neighbouring clusters.
-  for (let i = 0; i < allLeaves.length * 0.03; i++) {
-    const a = allLeaves[Math.floor(Math.random() * allLeaves.length)];
-    const b = allLeaves[Math.floor(Math.random() * allLeaves.length)];
-    if (a !== b) (forward[a] ??= []).push(b);
-  }
+
   return {
     adjacency: { forward, backward: {}, unresolved, tags: {} },
     allFiles: files,
@@ -88,9 +115,19 @@ function main(): void {
   if (!container) return;
 
   const theme = readTheme();
-  // Airier than the app defaults so the hero reads as an open mesh, not a dense
-  // ball (uses the wider repel range). Still the real renderer + real forces.
-  const s = { ...DEFAULT_GRAPH_SETTINGS, repelForce: 20, linkDistance: 110 };
+  // Galaxy/brain tuning: SHORT links + GENTLE local repulsion collapse each topic
+  // cluster into a tight luminous nucleus (hub-leaf edges shrink to a glowing
+  // knot instead of long radial firework spikes), and a FIRM centre gravity packs
+  // all ~70 nuclei into one cohesive galaxy with a dense core fading to a halo.
+  // Still the real renderer + real forces (range-capped charge in graphSim).
+  const s = {
+    ...DEFAULT_GRAPH_SETTINGS,
+    repelForce: 9,
+    linkDistance: 26,
+    centerForce: 0.5,
+    clusterForce: 0.5, // contract Louvain communities into coloured lobes/nuclei
+    brightness: 0.58, // tame the dense-core bloom white-out → colours/structure read
+  };
   const { adjacency, allFiles } = buildSyntheticVault();
   const allowed = computeAllowed(adjacency, allFiles, {
     tagFilter: null,

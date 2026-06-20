@@ -50,22 +50,26 @@ export const DEFAULT_GRAPH_SETTINGS: GraphSettings = {
   nodeSize: 1,
   linkThickness: 1,
   brightness: 1,
-  // NEURAL-MESH defaults: a homogeneous force field (no community clustering,
-  // like Obsidian) that spreads nodes into one even, organic 3D web. Stronger
-  // repulsion + longer, softer links open the mesh instead of clumping along
-  // edges; gentle uniform gravity keeps it cohesive and finite.
-  centerForce: 0.3, // → uniform x/y/z gravity ≈0.039 (cohesive, not crushing)
-  repelForce: 13, // → per-node charge ≈ -117 (spreads the web apart)
+  // GALAXY/BRAIN defaults: range-capped LOCAL repulsion (no global outward
+  // pressure → no firework spikes) + firm centre gravity collapse the vault into
+  // ONE cohesive luminous mass, while community clustering contracts each Louvain
+  // group into a tight coloured nucleus (a galaxy star-cluster / brain lobe).
+  // Short links keep nuclei compact; the few inter-lobe links thread them into a
+  // single interwoven web instead of separate exploding dandelions.
+  centerForce: 0.5, // → firm uniform gravity packs the lobes into one galaxy
+  repelForce: 9, // → per-node charge ≈ -81, range-capped to LOCAL neighbours
   linkForce: 0.45, // → soft springs (strong springs reel nodes into clumps)
-  linkDistance: 85, // → long ideal edge length → open web, not a tight ball
-  // 0 = neural mesh (homogeneous). Raise it to contract Louvain communities
-  // into separated "galaxies"; this slider is the mesh↔galaxy knob.
-  clusterForce: 0,
+  linkDistance: 45, // → short edges → compact nuclei, not a wide spoke-ring
+  // mesh↔galaxy knob: 0 = homogeneous Obsidian-style web; >0 contracts Louvain
+  // communities into coloured nuclei. 0.5 = distinct lobes that stay packed +
+  // threaded as one galaxy (the cap + cohesion keep them from flying apart).
+  clusterForce: 0.5,
 };
 
-// v23: neural-mesh defaults (clusterForce 0 + retuned forces). Bumping the key
-// drops stale persisted galaxy slider positions so the mesh defaults apply.
-const KEY = "memex.graph.settings.v23";
+// v24: galaxy/brain defaults (capped local repulsion + clusterForce 0.5 + tight
+// links). Bumping the key drops stale persisted slider positions so the new
+// cohesive-galaxy defaults apply instead of the old neural-mesh ones.
+const KEY = "memex.graph.settings.v24";
 
 export function loadGraphSettings(): GraphSettings {
   try {

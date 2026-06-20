@@ -52,17 +52,34 @@ const CENTER_SCALE = 0.13; // slider 0.5 → x/y/z strength ≈0.065 (cohesive)
 const CLUSTER_SCALE = 0.18; // clusterForce 0.6 → effective ≈0.108 (stable band)
 const HUB_PIN = 3; // the hub is pulled to its community centre this much harder,
 // so each galaxy has ONE clear central node (bright core)
-const ORBIT_BASE = 0.7; // member orbit radius = linkDistance·(BASE + GROW·√count)
-const ORBIT_GROW = 0.45; // …bigger communities orbit wider
+// Member orbit radius = linkDistance·(BASE + GROW·√count). Kept SMALL so each
+// community contracts into a tight luminous nucleus (a galaxy core / brain
+// nucleus) instead of a wide spoke-ring — a big radius draws every member on a
+// long radial edge, which is exactly the firework look. √count growth is gentle
+// so a 150-member hub is only modestly larger than a 10-member one.
+const ORBIT_BASE = 0.35;
+const ORBIT_GROW = 0.07;
 const DUST_PULL = 0.18; // orphans drift weakly toward their NEAREST galaxy; the
 // charge then holds them off it, so they settle as cosmic dust around each galaxy
 const BIGBANG_BURST = 22; // timelapse: outward spawn velocity (a burst from 0,0,0)
-const INTER_LINK_DIST_MUL = 6; // inter-galaxy links sit ~6× longer (the voids)
-const INTER_LINK_STR_MUL = 0.15; // ...and ~7× weaker (faint filaments)
+// ONE-GALAXY cohesion: inter-community links are only modestly longer and barely
+// weaker, so the Louvain nuclei contract into distinct coloured lobes yet stay
+// PACKED and threaded together as a single galaxy/brain — not flung into the
+// separate far-apart galaxies the old 6×/0.15× split produced.
+const INTER_LINK_DIST_MUL = 1.8; // inter-lobe links a bit longer → gentle gaps
+const INTER_LINK_STR_MUL = 0.45; // ...and weaker, but still thread lobes together
 const CLUSTERED_GRAVITY_MUL = 0.15; // clumped (galaxy) nodes feel weak gravity
 const ORPHAN_GRAVITY_MUL = 0.04; // orphans feel the WEAKEST gravity, so the
 // uncapped charge pushes them out past the galaxies into a sparse outer halo
 // (a stronger pull would pile link-less nodes in the centre).
+// LOCAL repulsion range. The charge is range-capped at this × linkDistance so a
+// node is only shoved by its NEAR neighbours, never by the whole 10k-node cloud.
+// Uncapped charge is what fired every hub's leaves outward along their single
+// spring into straight radial "firework" spikes; a local cap lets each cluster's
+// leaves pack isotropically around their hub, and the gentle global gravity then
+// collects all the clusters into ONE cohesive galaxy/brain instead of a field of
+// separate exploding dandelions.
+const CHARGE_RANGE_MUL = 3.2;
 
 export interface GraphSim {
   nodes: SimNode[];
@@ -168,13 +185,17 @@ export function createSim(
     .distance(linkDist)
     .strength(linkStrength)
     .iterations(1);
-  // UNCAPPED repulsion (no distanceMax): galaxy clumps need to push EACH OTHER
-  // apart at long range to open dark voids. A cap would zero inter-galaxy
-  // repulsion past it, letting weak origin gravity pile every clump onto 0,0,0.
+  // LOCAL repulsion (range-capped at CHARGE_RANGE_MUL × linkDistance). Past that
+  // range a node feels NO push, so the cloud has no global outward pressure to
+  // fling leaves into firework spikes. Each cluster's leaves spread only against
+  // their near neighbours (a tight blob), and the global gravity below reels all
+  // the clusters into one packed galaxy. distanceMin guards the singularity.
+  const chargeRange = (): number => cur.linkDistance * CHARGE_RANGE_MUL;
   const chargeF = forceManyBody<SimNode>()
     .strength(() => -cur.repelForce * REPEL_SCALE)
     .theta(0.9)
-    .distanceMin(2);
+    .distanceMin(2)
+    .distanceMax(chargeRange());
   const xF = forceX<SimNode>(0).strength(gravityOf(s));
   const yF = forceY<SimNode>(0).strength(gravityOf(s));
   const zF = forceZ<SimNode>(0).strength(gravityOf(s));
@@ -325,7 +346,7 @@ export function createSim(
       // linkDist/linkStrength/gravityOf close over `cur` (just reassigned), so
       // re-applying the accessors picks up the new slider values.
       linkF.distance(linkDist).strength(linkStrength);
-      chargeF.strength(() => -next.repelForce * REPEL_SCALE);
+      chargeF.strength(() => -next.repelForce * REPEL_SCALE).distanceMax(chargeRange());
       xF.strength(gravityOf(next));
       yF.strength(gravityOf(next));
       zF.strength(gravityOf(next));
