@@ -24,7 +24,7 @@ jobs:
         working-directory: app
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: lts/*
           cache: npm
@@ -86,7 +86,7 @@ jobs:
         # take down the app. pdf-extract 0.10.0 pins lopdf ^0.38, so the crate
         # can't be bumped until a newer pdf-extract ships; remove this ignore then.
         run: cargo audit --ignore RUSTSEC-2026-0187
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: lts/*
       # Only the SHIPPED (production) dependencies gate the build; dev-only
