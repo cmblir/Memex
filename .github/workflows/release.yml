@@ -42,7 +42,7 @@ jobs:
         working-directory: app
 
       # Pinned to an exact release of tauri-action (no moving v0/v1 tag exists).
-      - uses: tauri-apps/tauri-action@action-v0.6.2
+      - uses: tauri-apps/tauri-action@action-v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # The bundled SEED model (llama-cpp-sys-2 → ggml) compiles C++17
