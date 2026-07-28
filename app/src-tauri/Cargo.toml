@@ -42,7 +42,7 @@ llama-cpp-2 = "0.1.150"
 # SECOND copy of llama.cpp, and `=` turns that into a resolution error instead
 # of a silent disaster. Bump both lines together, never one alone.
 llama-cpp-sys-2 = { version = "=0.1.150", optional = true }
-zip = { version = "4.2.0", default-features = false, features = ["deflate"] }
+zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 # Recoverable deletes: delete_path moves entries to the OS trash instead of
 # unlinking them, so a mis-click never permanently destroys notes.
 trash = "5.2.3"
